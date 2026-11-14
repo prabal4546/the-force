@@ -2,12 +2,12 @@
 // WebSocket, text comes back while the person speaks.
 //
 // Copied from the kit (vexo-open-kit/dashboard/speech/deepgram.js) so the kit stays
-// untouched; see vexo-open-kit/docs/deepgram.md. While a link is open, everything the
+// untouched, with one change: keyterm=Vexo in the address; see vexo-open-kit/docs/deepgram.md. While a link is open, everything the
 // band's microphone hears is sent to Deepgram. The key is handed in by the page and is
 // never written anywhere by this file.
 const ADDRESS = 'wss://api.deepgram.com/v1/listen';
 const QUERY = 'model=nova-3&language=en&encoding=opus&sample_rate=16000&channels=1'
-  + '&interim_results=true&smart_format=true&endpointing=100&mip_opt_out=true';
+  + '&interim_results=true&smart_format=true&endpointing=100&mip_opt_out=true&keyterm=Vexo';
 // model=nova-3 language=en      Deepgram's general model, English
 // encoding=opus sample_rate=16000 channels=1
 //                               the band's packets exactly as they arrive: nothing is decoded here
@@ -16,6 +16,8 @@ const QUERY = 'model=nova-3&language=en&encoding=opus&sample_rate=16000&channels
 // endpointing=100               a pause of 0.1 s ends a sentence (measured on band recordings: 300 made the
 //                               finished sentence come seconds late, the default cuts in mid-phrase)
 // mip_opt_out=true              Deepgram may not use this sound to improve its models
+// keyterm=Vexo                  our wake word: nova-3 keyterm prompting makes it more likely to be heard right
+//                               (developers.deepgram.com/docs/keyterm: plain terms, no weights)
 export const DEEPGRAM_ADDRESS = `${ADDRESS}?${QUERY}`;
 
 const KEEP_ALIVE_MS = 4000;       // Deepgram closes after 10 s without sound; it asks for a KeepAlive every 3 to 5 s

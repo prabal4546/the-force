@@ -4,10 +4,12 @@
 // Every threshold in one place.
 export const CONFIG = {
   motionRate: 100,          // samples a second asked from the band
+  motionFallbackRate: 50,   // used instead once the link reports dropped stream data
 
   // Calibration
   poseMs: 2000,             // how long each calibration pose is recorded
   minPoseDps: 20,           // a twist or flick pose must move at least this much (RMS, deg/s)
+  holdMaxDps: 30,           // a hold-still pose must move less than this (RMS, deg/s)
   swingSignDps: 60,         // first swing above this decides which way is "clockwise" / "right"
 
   // Clutch: twist and flick only count near the level pose
@@ -26,7 +28,8 @@ export const CONFIG = {
   twistStepDegrees: 15,     // one adjust message per this many degrees turned away
   adjustStep: 0.05,         // the delta in each adjust message
   neutralDegrees: 10,       // back within this of the resting angle, the twist is over
-  twistHoldMs: 4000,        // held still this long while turned, that angle becomes the new zero
+  twistEndMs: 300,          // ... or after this long without turning
+  returnMs: 1500,           // after a twist, this long to turn back for free
 
   // Flick: a short spike on the flick axis that is stronger than the twist axis
   flickMinDps: 250,         // the spike must exceed this ...
@@ -41,11 +44,13 @@ export const CONFIG = {
   tapDelayMs: 300,          // how long toggle waits for a double-tap to cancel it
   tapCheckMs: 600,          // a tap this close before a double-tap counts as "sent before it"
 
-  // Raise to talk
-  raiseDegrees: 45,         // forearm this far above the level pose ...
-  raiseHoldMs: 300,         // ... for this long turns the microphone on
-  voiceEndMs: 900,          // this long after a finished sentence with nothing new, the command is sent
-  voiceMaxMs: 15000,        // the microphone never stays on longer than this in one raise
+  // Voice: the microphone is on from connect, and a wake word starts a command
+  micGainDb: 8,             // band microphone gain (default +20): low, so only a voice near the wrist registers
+  wakeWords: ['vexo', 'vex oh', "vexo's", 'vecto', 'vexa', 'texaco'],   // what "Vexo" may come back as; case does not matter
+  wakeTimeoutMs: 3000,      // nothing said this long after the wake word: forget it
+  wakeIgnoreMs: 2000,       // a second wake word this soon after one is ignored
+  wakeStallMs: 2500,        // words heard but never marked finished: send them after this long
+  pushToTalkFlushMs: 1200,  // after the spacebar is released, wait this long for the last words
 
   // All gestures
   cooldownMs: 500,          // quiet time after each gesture
@@ -94,11 +99,42 @@ export function firstSwingSign(samples, axis, threshold) {
 }
 
 /**
+ * Is one recorded calibration pose usable? Returns null when it is, or a sentence saying
+ * what to do differently. `kind` is 'level', 'twist' or 'flick'; `poses` holds the
+ * recordings accepted so far ({ level, twist }).
+ */
+export function checkPose(kind, samples, poses = {}, config = CONFIG) {
+  if (samples.length < 10) return 'No motion arrived from the band. Is it still connected?';
+  const energy = gyroEnergy(samples);
+  const strongest = GYRO.reduce((best, axis) => (energy[axis] > energy[best] ? axis : best));
+  if (kind === 'level') {
+    return energy[strongest] > config.holdMaxDps ? 'Your arm was moving. Hold it still for the whole 2 seconds.' : null;
+  }
+  if (energy[strongest] < config.minPoseDps) {
+    return kind === 'twist' ? 'That hardly moved. Turn your wrist like a doorknob, back and forth, the whole time.'
+      : 'That hardly moved. Flick your hand side to side the whole time.';
+  }
+  if (kind === 'flick' && poses.twist) {
+    const twistAxis = strongestAxis(poses.twist);
+    const rest = GYRO.filter((axis) => axis !== twistAxis);
+    if (Math.max(energy[rest[0]], energy[rest[1]]) < config.minPoseDps) {
+      return 'That looked like the twist again. Keep your forearm still and wave your hand left and right.';
+    }
+  }
+  return null;
+}
+
+function strongestAxis(samples) {
+  const energy = gyroEnergy(samples);
+  return GYRO.reduce((best, axis) => (energy[axis] > energy[best] ? axis : best));
+}
+
+/**
  * Turn the three recorded poses into a calibration.
  * The person starts the twist clockwise and the flick to the right, so the first swing
  * of each recording fixes the sign of "clockwise" and "right".
  */
-export function computeCalibration(level, twist, flick, raise = null, config = CONFIG) {
+export function computeCalibration(level, twist, flick, config = CONFIG) {
   if (level.length < 10 || twist.length < 10 || flick.length < 10) {
     throw new Error('Too few motion samples were recorded. Is the band still connected?');
   }
@@ -126,11 +162,6 @@ export function computeCalibration(level, twist, flick, raise = null, config = C
     rollSign: rollDirection(twist, twistAxis, gravity),
     flickPeak: percentile(flick.map((s) => Math.abs(s[flickAxis] - bias[flickAxis])), 0.95),
   };
-  if (raise && raise.length >= 10) {               // which way is "up", and how far the raise pose went
-    const lift = elevation(meanGravity(raise), twistAxis) - elevation(calibration.gravity, twistAxis);
-    calibration.raiseSign = lift < 0 ? -1 : 1;
-    calibration.raiseDegrees = Math.abs(lift);
-  }
   return calibration;
 }
 
@@ -178,42 +209,6 @@ function elevation(gravity, twistAxis) {
   return Math.asin(Math.max(-1, Math.min(1, along))) * DEG;
 }
 
-/** Degrees the forearm is lifted above the level pose (negative: below it, as when the arm hangs). */
-export function liftAngle(gravity, calibration) {
-  const lift = elevation(gravity, calibration.twistAxis) - elevation(calibration.gravity, calibration.twistAxis);
-  return lift * (calibration.raiseSign || 1);
-}
-
-/**
- * Raise to talk. Feed it every motion sample; it answers 'raise' once the forearm has been
- * lifted more than raiseDegrees for raiseHoldMs, 'lower' when the arm is level again, and
- * null the rest of the time. A hanging arm is below level, so it never counts as a raise.
- */
-export function createRaiseDetector(calibration, config = CONFIG) {
-  let gravity = null;
-  let liftedSince = null;
-  const state = { raised: false, lift: null };
-
-  function update(s) {
-    const accel = [s.ax, s.ay, s.az];
-    gravity = gravity === null ? accel : gravity.map((g, i) => g + config.gravitySmoothing * (accel[i] - g));
-    state.lift = liftAngle(gravity, calibration);
-    if (!state.raised) {
-      if (state.lift <= config.raiseDegrees) { liftedSince = null; return null; }
-      if (liftedSince === null) liftedSince = s.t;
-      if (s.t - liftedSince < config.raiseHoldMs) return null;
-      state.raised = true;
-      return 'raise';
-    }
-    if (Math.abs(state.lift) > config.clutchDegrees) return null;
-    state.raised = false;
-    liftedSince = null;
-    return 'lower';
-  }
-
-  return { update, state };
-}
-
 /** How far the arm is from the level pose, in degrees. */
 export function clutchAngle(gravity, calibration, config = CONFIG) {
   if (!config.clutchIgnoresTwist) return angleBetween(gravity, calibration.gravity);
@@ -244,16 +239,29 @@ export function createDetector(calibration, config = CONFIG) {
   let stillSince = null;
   let lastT = null;
   let cooldownUntil = -Infinity;
-  let twist = null;            // the twist in progress: { side, steps }
+  let twist = null;            // the twist in progress: { side, steps, lastMove }
+  let counted = { side: 0, steps: 0 };   // adjusts already sent on one side of the current zero
+  let returnUntil = -Infinity; // until then the wrist may turn back without it counting
+  let returnSide = 0;
   let spike = null;            // flick candidate: { start, sign, flick, twist }
   let peakFlick = 0;           // recent peaks on the two axes, fading
   let peakTwist = 0;
   let toggleAt = null;         // a held-back toggle fires at this time
-  const state = { clutch: false, angle: null, twisting: false, roll: 0, missedFlick: null };
+  const state = { clutch: false, angle: null, twisting: false, roll: 0, missedFlick: null, twistRate: 0, flickRate: 0, flickMin };
 
   function endTwist(t) {
-    if (twist && twist.steps > 0) cooldownUntil = t + config.cooldownMs;
+    if (twist && twist.steps > 0) {
+      cooldownUntil = t + config.cooldownMs;
+      counted = { side: twist.side, steps: twist.steps };
+      returnUntil = t + config.returnMs;
+      returnSide = -twist.side;
+    }
     twist = null;
+  }
+
+  function rest(angle) {                                 // the wrist is resting here: measure from here
+    zero = angle;
+    counted = { side: 0, steps: 0 };
   }
 
   function update(s) {
@@ -290,8 +298,9 @@ export function createDetector(calibration, config = CONFIG) {
       cooldownUntil = s.t + config.cooldownMs;
     }
 
-    if (!state.clutch) { endTwist(s.t); spike = null; zero = angle; }
-    else if (s.t < cooldownUntil) { spike = null; if (!twist && stillFor >= config.stillMs) zero = angle; }
+    const mayRest = !twist && stillFor >= config.stillMs && s.t >= returnUntil;
+    if (!state.clutch) { endTwist(s.t); spike = null; returnUntil = -Infinity; rest(angle); }
+    else if (s.t < cooldownUntil) { spike = null; if (mayRest) rest(angle); }
     else {
       if (!twist) {                                      // flick: a short spike, stronger than the twist axis
         if (spike === null) {
@@ -315,26 +324,31 @@ export function createDetector(calibration, config = CONFIG) {
       }
 
       const away = wrap(angle - zero);                   // degrees turned from the resting angle
+      if (Math.abs(away) <= config.neutralDegrees) returnUntil = -Infinity;   // back at rest: the free return is used up
       if (!twist) {
-        if (stillFor >= config.stillMs) zero = angle;    // resting: this is the new zero
+        const side = Math.sign(away);
+        if (mayRest) rest(angle);
         else if (spike === null && s.t >= cooldownUntil && peakTwist >= peakFlick
           && Math.abs(away) >= config.twistStepDegrees && Math.abs(twistRate) >= config.twistMinDps
-          && Math.sign(twistRate) === Math.sign(away)) {
-          twist = { side: Math.sign(away), steps: 0 };
+          && Math.sign(twistRate) === side && !(s.t < returnUntil && side === returnSide)) {
+          twist = { side, steps: counted.side === side ? counted.steps : 0, lastMove: s.t };
         }
       }
       if (twist) {
+        if (Math.abs(twistRate) >= config.twistMinDps) twist.lastMove = s.t;
         const steps = Math.floor((twist.side * away) / config.twistStepDegrees);
         while (twist.steps < steps) {                    // further away than before: one adjust per step
           out.push({ type: 'adjust', delta: twist.side * config.adjustStep });
           twist.steps += 1;
         }
-        if (twist.side * away <= config.neutralDegrees) endTwist(s.t);                  // came back
-        else if (stillFor >= config.twistHoldMs) { endTwist(s.t); zero = angle; }       // stayed turned
+        // Over when the wrist came back, or stopped turning. Either way flicks and taps work again.
+        if (twist.side * away <= config.neutralDegrees || s.t - twist.lastMove > config.twistEndMs) endTwist(s.t);
       }
     }
 
     state.twisting = twist !== null;
+    state.twistRate = twistRate;
+    state.flickRate = flickRate;
     state.roll = wrap(angle - zero);
     return out;
   }

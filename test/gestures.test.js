@@ -5,13 +5,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CONFIG, angleBetween, computeCalibration, clutchAngle, createDetector, createRaiseDetector, flickThreshold,
+  CONFIG, angleBetween, checkPose, computeCalibration, clutchAngle, createDetector, flickThreshold,
 } from '../gestures.js';
 
 const STEP = 10;                                   // ms between samples: 100 a second
 const RAD = Math.PI / 180;
 const HANGING = { ax: 1, ay: 0, az: 0 };           // arm at the side: gravity along the forearm
-const RAISED = { ax: -Math.sin(1.0), ay: 0, az: Math.cos(1.0) };   // forearm lifted about 57 degrees
 
 /**
  * `ms` of samples from `t0`. `roll(seconds)` is the wrist angle in degrees (clockwise);
@@ -36,7 +35,7 @@ const flick = (t0, ms, dps, twistDps = 0) => wrist(t0, ms, () => 0, () => ({ gz:
 
 const swing = (peak) => (s) => peak * Math.sin(2 * Math.PI * 1.5 * s + 0.3);          // degrees, clockwise first
 const flickPose = (peak) => wrist(0, 2000, () => 0, (s) => ({ gz: peak * Math.sin(2 * Math.PI * 1.5 * s + 0.3) }));
-const CAL = computeCalibration(hold(0, 2000), wrist(0, 2000, swing(40)), flickPose(500), hold(0, 2000, 0, RAISED));
+const CAL = computeCalibration(hold(0, 2000), wrist(0, 2000, swing(40)), flickPose(500));
 
 /** Run samples through a fresh detector (or the one given); returns every message. */
 function run(list, detector = createDetector(CAL)) {
@@ -84,6 +83,35 @@ test('twist works the same on a band whose gravity turns the other way', () => {
   assert.notEqual(cal.rollSign, CAL.rollSign);
   const out = run([...hold(0, 500), ...turn(500, 0, 65, 130, -1), ...turn(1000, 65, 0, 130, -1), ...hold(1500, 800)], createDetector(cal));
   assert.deepEqual(out, adjusts(4, 0.05));
+});
+
+test('pausing at the far end still gives a free return', () => {
+  const out = run([...hold(0, 500), ...turn(500, 0, 50, 100), ...hold(1000, 700, 50), ...turn(1700, 50, 0, 100), ...hold(2200, 800)]);
+  assert.deepEqual(out, adjusts(3, 0.05));
+});
+
+test('turning further after a pause only sends the extra steps', () => {
+  const out = run([...hold(0, 500), ...turn(500, 0, 35, 100), ...hold(850, 600, 35), ...turn(1450, 35, 65, 100), ...hold(1750, 300, 65)]);
+  assert.deepEqual(out, adjusts(4, 0.05));
+});
+
+test('a twist that never comes back does not block flicks and taps', () => {
+  const detector = createDetector(CAL);
+  assert.equal(run([...hold(0, 500), ...turn(500, 0, 50, 100), ...hold(1000, 1500, 50)], detector).length, 3);
+  assert.equal(detector.state.twisting, false);
+  const pose = (t, ms, gz) => wrist(t, ms, () => 50, () => ({ gz }));
+  assert.deepEqual(run([...pose(2500, 100, 400), ...pose(2600, 700, 0)], detector), [{ type: 'step', direction: 1 }]);
+  assert.deepEqual(detector.tap('double-tap', 3300), [{ type: 'select' }]);
+});
+
+test('calibration poses are checked one at a time', () => {
+  const level = hold(0, 2000), twist = wrist(0, 2000, swing(40));
+  assert.equal(checkPose('level', level), null);
+  assert.match(checkPose('level', twist), /moving/);
+  assert.equal(checkPose('twist', twist, { level }), null);
+  assert.match(checkPose('twist', level, { level }), /hardly moved/);
+  assert.equal(checkPose('flick', flickPose(500), { level, twist }), null);
+  assert.match(checkPose('flick', twist, { level, twist }), /twist again/);
 });
 
 test('cranking twice adds up', () => {
@@ -180,31 +208,4 @@ test('a twist ends with a cooldown: a flick right after it is dropped, a later o
   assert.equal(run([...hold(0, 500), ...turn(500, 0, 35, 100), ...turn(850, 35, 0, 100), ...hold(1200, 100)], detector).length, 2);
   assert.deepEqual(run([...flick(1300, 100, 400), ...hold(1400, 500)], detector), []);
   assert.deepEqual(run([...flick(1900, 100, 400), ...hold(2000, 100)], detector), [{ type: 'step', direction: 1 }]);
-});
-
-test('calibration learns which way is up from the raise pose', () => {
-  assert.equal(CAL.raiseSign, -1);
-  assert.ok(Math.abs(CAL.raiseDegrees - 57.3) < 1);
-});
-
-/** Run samples through a raise detector; returns the 'raise' / 'lower' answers with their times. */
-function raises(list, detector = createRaiseDetector(CAL)) {
-  return list.flatMap((s) => { const a = detector.update(s); return a ? [[a, s.t]] : []; });
-}
-
-test('raise to talk: lifted for 300 ms turns it on, level again turns it off', () => {
-  const out = raises([...hold(0, 500), ...hold(500, 1500, 0, RAISED), ...hold(2000, 1000)]);
-  assert.equal(out.length, 2);
-  assert.equal(out[0][0], 'raise');
-  assert.ok(out[0][1] >= 800 && out[0][1] <= 1100, 'on about 300 ms after the lift settled: ' + out[0][1]);
-  assert.equal(out[1][0], 'lower');
-});
-
-test('raise to talk: a short lift does nothing', () => {
-  assert.deepEqual(raises([...hold(0, 500), ...hold(500, 200, 0, RAISED), ...hold(700, 1000)]), []);
-});
-
-test('raise to talk: a hanging arm and a turned wrist are not a raise', () => {
-  assert.deepEqual(raises([...hold(0, 500), ...hold(500, 3000, 0, HANGING)]), []);
-  assert.deepEqual(raises([...hold(0, 500), ...hold(500, 3000, 80)]), []);
 });

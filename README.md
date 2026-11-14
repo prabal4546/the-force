@@ -49,8 +49,8 @@ no transport of its own. The maths is in `gestures.js`; every threshold is in `C
 the top of that file.
 
 On the dashboard: double-tap the band, close any other tab that uses it, press **Connect**,
-then **Calibrate** and follow the four prompts (arm level, twist starting clockwise, flick
-starting to the right, wrist raised to the mouth). The calibration is kept in the browser's localStorage.
+then **Calibrate** and follow the three steps (arm level, twist starting clockwise, flick
+starting to the right). Each step is checked and can be retried on its own. The calibration is kept in the browser's localStorage.
 
 | Gesture | Message |
 |---|---|
@@ -71,14 +71,24 @@ How the detection works (`gestures.js`):
 
 ### Voice
 
-Raise your wrist towards your mouth for 0.3 seconds: the band's microphone turns on (solid
-blue light), gestures pause, and the sound goes to Deepgram (`speech.js`, copied from the
-kit). About a second after you stop speaking, or when you lower your arm, one
-`{ "type": "command", "text": "..." }` is sent. Silence sends nothing.
+The band's microphone turns on at connect (solid blue light) and its sound goes to
+Deepgram the whole time (`speech.js`, copied from the kit, with `keyterm=Vexo`). Gestures
+keep working meanwhile.
+
+- Say **"Vexo"** and then what you want. When Deepgram marks the sentence finished, one
+  `{ "type": "command", "text": "..." }` is sent. Nothing within 3 seconds sends nothing.
+  The spellings that count as the wake word are `wakeWords` in `CONFIG` (`wake.js` has the logic).
+- Or hold the **spacebar** and speak: everything said while it is held is one command.
+- **Mute** turns the microphone off.
+- The microphone gain starts at `micGainDb` (+8 dB) so only a voice near the wrist
+  registers. The page shows the live loudness and has a gain field for tuning.
+
+While the microphone is on, the band's light is locked blue and no LED command is sent:
+the active device, gesture flashes and errors show on the page instead.
 
 Paste the team's Deepgram key into the key field on the page. It is kept in that tab's
-sessionStorage only: never put it in a file or a commit. While the light is blue,
-everything the microphone hears goes to Deepgram, so tell the people near you.
+sessionStorage only: never put it in a file or a commit. Everything the microphone hears,
+from everyone nearby, goes to Deepgram: tell the people near you and mute when not in use.
 
 Tests (Node 18 or newer, no band needed):
 

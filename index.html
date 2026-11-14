@@ -1,91 +1,240 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Band 28</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Band remote</title>
 <style>
-  body { font: 16px system-ui, sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
-  button { font: inherit; padding: 6px 14px; }
-  .graph { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
-  .graph span { width: 110px; font-family: ui-monospace, monospace; font-size: 14px; }
-  canvas { border: 1px solid #ccc; width: 380px; height: 70px; }
-  #log { font-family: ui-monospace, monospace; white-space: pre; height: 180px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; }
-  #prompt { font-size: 20px; min-height: 28px; font-weight: 600; }
-  #readouts td { padding: 2px 14px 2px 0; }
+  :root {
+    --bg: #f4f5f7; --card: #fff; --text: #16181d; --muted: #667085; --line: #e3e6eb;
+    --accent: #2563eb; --good: #15803d; --good-bg: #dcfce7; --warn: #b45309; --warn-bg: #fef3c7;
+    --bad: #b91c1c; --idle-bg: #eceef2; --blue-bg: #dbeafe;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101216; --card: #1a1d23; --text: #eef0f4; --muted: #98a2b3; --line: #2c313a;
+      --accent: #60a5fa; --good: #4ade80; --good-bg: #14321f; --warn: #fbbf24; --warn-bg: #3a2c0c;
+      --bad: #f87171; --idle-bg: #262a32; --blue-bg: #172a4a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { font: 16px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px 16px 60px; }
+  main { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
+  h1 { font-size: 24px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .spread { justify-content: space-between; }
+  button { font: inherit; padding: 8px 16px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  .pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; background: var(--idle-bg); color: var(--muted); }
+  .pill.good { background: var(--good-bg); color: var(--good); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.blue { background: var(--blue-bg); color: var(--accent); }
+  #status { min-height: 22px; }
+
+  /* Gestures */
+  .gestures { display: grid; grid-template-columns: 150px 1fr; gap: 24px; align-items: center; }
+  #dial { width: 140px; height: 140px; border: 4px solid var(--line); border-radius: 50%; position: relative; }
+  #needle { position: absolute; left: 50%; top: 8px; width: 5px; height: 62px; margin-left: -2.5px; background: var(--accent); transform-origin: 50% 100%; border-radius: 3px; transition: transform .08s linear; }
+  #level { position: absolute; left: 0; right: 0; bottom: 20px; text-align: center; font-weight: 700; font-size: 18px; }
+  #gesture { font-size: 26px; font-weight: 700; min-height: 38px; margin-bottom: 12px; }
+  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 8px 4px; text-align: center; font-size: 13px; color: var(--muted); transition: background .4s, color .4s, border-color .4s; }
+  .tile b { display: block; font-size: 22px; font-weight: 400; }
+  .tile.hit { background: var(--accent); border-color: var(--accent); color: #fff; transition: none; }
+  .meter { margin-top: 14px; }
+  .meter label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .track { position: relative; height: 14px; background: var(--idle-bg); border-radius: 7px; overflow: hidden; }
+  .track i { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 7px; }
+  .track u { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .55; }
+  @media (max-width: 560px) { .gestures { grid-template-columns: 1fr; justify-items: center; } .tiles { grid-template-columns: repeat(3, 1fr); } }
+
+  /* Messages, voice, details */
+  #log { font: 13px/1.5 ui-monospace, monospace; white-space: pre; height: 190px; overflow: auto; background: var(--idle-bg); border-radius: 9px; padding: 10px 12px; }
+  input[type=password] { font: inherit; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 250px; max-width: 100%; }
+  #sending { color: var(--bad); font-weight: 600; min-height: 22px; }
+  #heard { font-size: 18px; min-height: 28px; }
+  #heard b { color: var(--accent); }
+  input[type=number] { font: inherit; padding: 6px 8px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 76px; }
+  #swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 6px; border: 1px solid var(--line); }
+  body.error main { outline: 4px solid var(--bad); outline-offset: 6px; border-radius: 18px; }
+  kbd { font: 13px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; }
+  details summary { cursor: pointer; font-weight: 600; }
+  #readouts { margin: 12px 0; font-size: 14px; }
+  #readouts td { padding: 2px 16px 2px 0; }
   #readouts td:last-child { font-family: ui-monospace, monospace; }
-  .remote { display: flex; gap: 24px; align-items: center; }
-  #dial { width: 110px; height: 110px; border: 3px solid #333; border-radius: 50%; position: relative; flex: none; }
-  #dial i { position: absolute; left: 50%; top: 6px; width: 4px; height: 49px; margin-left: -2px; background: #06c; transform-origin: 50% 100%; border-radius: 2px; }
-  #dial b { position: absolute; left: 0; right: 0; bottom: 14px; text-align: center; font-size: 14px; }
-  #gesture { font-size: 22px; font-weight: 600; min-height: 30px; }
-  #sending { color: #a00; font-weight: 600; min-height: 22px; }
-  input[type=password] { font: inherit; width: 260px; }
-  .on { color: #080; font-weight: 600; } .off { color: #a00; }
-  #taps { font-family: ui-monospace, monospace; white-space: pre; height: 180px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; }
+  .graph { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+  .graph span { width: 110px; font: 13px ui-monospace, monospace; }
+  canvas { border: 1px solid var(--line); border-radius: 6px; width: 380px; max-width: 100%; height: 70px; }
+  #taps { font: 13px ui-monospace, monospace; white-space: pre; height: 100px; overflow-y: auto; background: var(--idle-bg); border-radius: 9px; padding: 8px 12px; }
+
+  /* Calibration */
+  #wizard { position: fixed; inset: 0; background: rgba(8, 10, 14, .62); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  #wizard.open { display: flex; }
+  .sheet { background: var(--card); border-radius: 18px; padding: 26px 28px; width: 520px; max-width: 100%; text-align: center; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 22px; }
+  .steps div { font-size: 12px; color: var(--muted); border-top: 4px solid var(--line); padding-top: 6px; }
+  .steps div.now { color: var(--text); border-color: var(--accent); font-weight: 700; }
+  .steps div.done { color: var(--good); border-color: var(--good); }
+  #wizIcon { font-size: 60px; line-height: 1; }
+  #wizTitle { font-size: 26px; font-weight: 700; margin: 10px 0 6px; }
+  #wizText { color: var(--muted); min-height: 46px; }
+  #wizPhase { height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  #wizCount { font-size: 64px; font-weight: 800; line-height: 1; color: var(--accent); }
+  #wizCount.ok { color: var(--good); }
+  #wizLabel { font-weight: 700; letter-spacing: .05em; text-transform: uppercase; font-size: 14px; }
+  #wizLabel.rec { color: var(--bad); }
+  #wizBar { width: 100%; height: 12px; background: var(--idle-bg); border-radius: 6px; overflow: hidden; visibility: hidden; }
+  #wizBar i { display: block; height: 100%; width: 0; background: var(--bad); }
+  #wizMotion { width: 100%; height: 6px; background: var(--idle-bg); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  #wizMotion i { display: block; height: 100%; width: 0; background: var(--accent); }
+  #wizProblem { color: var(--bad); font-weight: 600; min-height: 48px; margin-top: 10px; }
+  #wizSummary { text-align: left; margin: 12px auto 0; font-size: 15px; display: none; }
+  #wizSummary td { padding: 3px 14px 3px 0; }
 </style>
 
-<h1>Band 28</h1>
-<p>
-  <button id="connect">Connect</button>
-  <button id="disconnect" disabled>Disconnect</button>
-</p>
-<p id="status">Not connected.</p>
-<p>Battery: <b id="battery">--</b></p>
-<p>Before each connect: double-tap the band, and close any other tab that uses it.</p>
+<main>
+  <header class="card">
+    <div class="row spread">
+      <h1 id="title">Band remote</h1>
+      <span id="link" class="pill">Not connected</span>
+    </div>
+    <div class="row" style="margin-top: 14px">
+      <button id="connect" class="primary">Connect</button>
+      <button id="disconnect" disabled>Disconnect</button>
+      <button id="calibrate" disabled>Calibrate</button>
+      <span class="muted">Battery <b id="battery">--</b></span>
+      <span id="active" class="pill"><i id="swatch"></i><span id="activeName">No active device</span></span>
+    </div>
+    <p id="status" class="muted" style="margin: 12px 0 0">Before each connect: double-tap the band, and close any other tab that uses it.</p>
+  </header>
 
-<h2>Remote</h2>
-<p><button id="calibrate" disabled>Calibrate</button></p>
-<p id="prompt"></p>
-<div class="remote">
-  <div id="dial"><i id="needle"></i><b id="level">0.50</b></div>
-  <table id="readouts">
-    <tr><td>Clutch</td><td id="clutch">--</td></tr>
-    <tr><td>Twist axis</td><td id="twistAxis">--</td></tr>
-    <tr><td>Flick axis</td><td id="flickAxis">--</td></tr>
-    <tr><td>Tap before double-tap</td><td id="tapCheck">--</td></tr>
-    <tr><td>Wrist turn</td><td id="roll">--</td></tr>
-    <tr><td>Last flick not counted</td><td id="missedFlick">--</td></tr>
-    <tr><td>Arm lift</td><td id="lift">--</td></tr>
-  </table>
+  <section class="card">
+    <div class="row spread" style="margin-bottom: 12px">
+      <h2 style="margin: 0">Gestures</h2>
+      <span id="clutch" class="pill">--</span>
+    </div>
+    <div class="gestures">
+      <div id="dial"><i id="needle"></i><div id="level">0.50</div></div>
+      <div>
+        <div id="gesture">&nbsp;</div>
+        <div class="tiles">
+          <div class="tile" id="tile-adjust"><b>🔄</b>Twist</div>
+          <div class="tile" id="tile-step"><b>👋</b>Flick</div>
+          <div class="tile" id="tile-toggle"><b>☝️</b>Tap</div>
+          <div class="tile" id="tile-select"><b>✌️</b>Double-tap</div>
+          <div class="tile" id="tile-command"><b>🎙️</b>Voice</div>
+        </div>
+        <div class="meter">
+          <label><span>Wrist turn</span><span id="rollText">--</span></label>
+          <div class="track" id="rollTrack"><i id="rollBar"></i></div>
+        </div>
+        <div class="meter">
+          <label><span>Flick strength (line = how hard a flick must be)</span><span id="flickText">--</span></label>
+          <div class="track"><i id="flickBar" style="left: 0"></i><u id="flickMark"></u></div>
+        </div>
+      </div>
+    </div>
+    <p class="muted" style="margin: 14px 0 0">Hold your forearm level. Twist away from rest to adjust (turning back is free), flick your hand sideways to step, tap or double-tap the band.</p>
+  </section>
+
+  <section class="card">
+    <div class="row spread" style="margin-bottom: 12px">
+      <h2 style="margin: 0">Voice</h2>
+      <span id="micState" class="pill">Off</span>
+    </div>
+    <div class="row">
+      <input id="deepgramKey" type="password" placeholder="Paste Deepgram key, press Enter" autocomplete="off">
+      <button id="forgetKey">Forget key</button>
+      <button id="mute">Mute</button>
+    </div>
+    <p id="heard" style="margin-top: 14px"></p>
+    <p class="muted">Say <b>“Vexo”</b> and then what you want, or hold <kbd>Space</kbd> and just speak.</p>
+    <div class="meter">
+      <label><span>Loudness at the band (line = about where a close voice sits)</span><span id="loudText">--</span></label>
+      <div class="track"><i id="loudBar" style="left: 0"></i><u style="left: 55%"></u></div>
+    </div>
+    <div class="row" style="margin-top: 12px">
+      <label class="muted" for="gain">Mic gain, dB</label>
+      <input id="gain" type="number" min="-20" max="20" step="1">
+      <span class="muted">lower = only a voice near the wrist. Put the value you like into <code>micGainDb</code> in CONFIG.</span>
+    </div>
+    <p id="sending" style="margin-top: 12px"></p>
+    <p class="muted">The microphone is on from connect: everything it hears, from everyone nearby, goes over the internet to Deepgram.
+      Tell the people near you, and press Mute when you are not using it. The key stays in this tab only and is gone when the tab closes.</p>
+  </section>
+
+  <section class="card">
+    <h2>Outgoing messages</h2>
+    <div id="log"></div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Sensor details</summary>
+      <table id="readouts">
+        <tr><td>Arm from level</td><td id="angle">--</td></tr>
+        <tr><td>Twist axis</td><td id="twistAxis">--</td></tr>
+        <tr><td>Flick axis</td><td id="flickAxis">--</td></tr>
+        <tr><td>Tap before double-tap</td><td id="tapCheck">--</td></tr>
+        <tr><td>Last flick not counted</td><td id="missedFlick">--</td></tr>
+        <tr><td>Motion rate</td><td id="motionRate">--</td></tr>
+      </table>
+      <p><button id="saveMotion">Save last 10 s of motion</button> <span class="muted">a file for tuning a gesture that is not recognised</span></p>
+      <p class="muted">Last 10 seconds. Acceleration in g, turning in deg/s.</p>
+      <div id="graphs"></div>
+      <p class="muted" style="margin-top: 12px">Taps the band reported</p>
+      <div id="taps"></div>
+    </details>
+  </section>
+</main>
+
+<div id="wizard">
+  <div class="sheet">
+    <div class="steps" id="wizSteps"></div>
+    <div id="wizIcon"></div>
+    <div id="wizTitle"></div>
+    <div id="wizText"></div>
+    <div id="wizPhase">
+      <div id="wizCount"></div>
+      <div id="wizLabel"></div>
+      <div id="wizBar"><i></i></div>
+    </div>
+    <div id="wizMotion"><i></i></div>
+    <div id="wizProblem"></div>
+    <table id="wizSummary"></table>
+    <div class="row" style="justify-content: center; margin-top: 8px">
+      <button id="wizRetry" class="primary" style="display: none">Try again</button>
+      <button id="wizCancel">Cancel</button>
+    </div>
+  </div>
 </div>
-<p id="gesture"></p>
-<h3>Outgoing messages</h3>
-<div id="log"></div>
-<p><button id="saveMotion">Save last 10 s of motion</button> (a file for tuning a gesture that is not recognised)</p>
-
-<h2>Voice</h2>
-<p>Raise your wrist towards your mouth and speak; lower it when done.</p>
-<p>
-  <input id="deepgramKey" type="password" placeholder="Deepgram key" autocomplete="off">
-  <button id="forgetKey">Forget key</button> <span id="keyState"></span>
-</p>
-<p>While the band's light is solid blue, everything its microphone hears is sent over the internet to Deepgram.
-   Tell the people near you. The key stays in this tab only (sessionStorage) and is gone when the tab closes.</p>
-<p id="sending"></p>
-<p>Heard: <span id="heard"></span></p>
-
-<h2>Motion</h2>
-<p>Last 10 seconds. Acceleration in g, turning in deg/s.</p>
-<div id="graphs"></div>
-
-<h2>Taps</h2>
-<div id="taps"></div>
 
 <script>  // a double-clicked file cannot load the library: say so on the page
   if (location.protocol === 'file:') document.getElementById('status').textContent =
     'Opened by double-click. In ~/vexo-remote run:  python3 -m http.server 8000 --bind 127.0.0.1  then open http://localhost:8000/index.html';
 </script>
 <script type="module">
-  import { Band } from './vexo-open-kit/js/src/index.js';
+  import { Band, SimTransport } from './vexo-open-kit/js/src/index.js';
   import * as remote from './band-module.js';
 
   const BAND = 28;                                   // our team's band number: Vexo-HACK-28
   const SIM = location.search.includes('sim');       // index.html?sim = pretend band, no hardware
+  const NAME = 'Vexo-HACK-' + String(BAND).padStart(2, '0');
   const $ = (id) => document.getElementById(id);
   const say = (text) => { $('status').textContent = text; };
+  const pause = (ms) => new Promise((done) => setTimeout(done, ms));
   let band = null;
+  let latest = null;                                 // the newest motion sample
+  let sound = null;                                  // for the short beeps
+  document.title = $('title').textContent = 'Band ' + BAND + ' remote';
 
-  // One small graph per motion value, each holding the last 10 seconds.
+  // ---- Sensor details: one small graph per motion value, the last 10 seconds ----
   const RATE = remote.CONFIG.motionRate;             // readings a second
   const POINTS = RATE * 10;
+  const recent = [];                                 // raw samples, for "Save last 10 s of motion"
   const graphs = [['ax', 1.5], ['ay', 1.5], ['az', 1.5], ['gx', 100], ['gy', 100], ['gz', 100]].map(([name, minScale]) => {
     const row = document.createElement('div');
     row.className = 'graph';
@@ -97,16 +246,18 @@
     return { name, minScale, label, canvas, values: [] };
   });
 
-  function draw() {
+  function drawGraphs() {
+    if (!document.querySelector('details').open) return;   // hidden: nothing to draw
+    const line = getComputedStyle(document.body).getPropertyValue('--line'), accent = getComputedStyle(document.body).getPropertyValue('--accent');
     for (const g of graphs) {
       const c = g.canvas.getContext('2d'), w = g.canvas.width, h = g.canvas.height;
       const last = g.values[g.values.length - 1];
       const scale = Math.max(g.minScale, ...g.values.map(Math.abs));   // the graph spans -scale..+scale
       g.label.textContent = g.name + ' ' + (last === undefined ? '--' : last.toFixed(g.minScale < 10 ? 2 : 1));
       c.clearRect(0, 0, w, h);
-      c.strokeStyle = '#ccc'; c.lineWidth = 1;       // the zero line
+      c.strokeStyle = line; c.lineWidth = 1;         // the zero line
       c.beginPath(); c.moveTo(0, h / 2); c.lineTo(w, h / 2); c.stroke();
-      c.strokeStyle = '#06c'; c.lineWidth = 2;
+      c.strokeStyle = accent; c.lineWidth = 2;
       c.beginPath();
       g.values.forEach((v, i) => {
         const x = w - (g.values.length - 1 - i) * (w / (POINTS - 1));   // newest at the right edge
@@ -115,13 +266,13 @@
       });
       c.stroke();
     }
-    showRemote();
-    requestAnimationFrame(draw);
   }
 
-  // ---- Remote: event log, dial, clutch and axis readouts, calibration ----
+  // ---- Gestures: dial, tiles, meters, message log ----
   let dial = 0.5;                                    // what the adjust messages add up to, 0..1
+  let flickPeak = 0;                                 // a fading peak, so a short flick stays visible
   const logLines = [];                               // newest first: { time, name, json, count, at }
+
   function gestureName(message) {
     if (message.type === 'adjust') return message.delta > 0 ? 'Twist clockwise' : 'Twist counter-clockwise';
     if (message.type === 'step') return message.direction > 0 ? 'Flick right' : 'Flick left';
@@ -130,6 +281,7 @@
     if (message.type === 'command') return 'Voice';
     return message.type;
   }
+
   remote.onEvent((message) => {
     if (message.type === 'adjust') dial = Math.max(0, Math.min(1, dial + message.delta));
     const name = gestureName(message), json = JSON.stringify(message), now = Date.now(), top = logLines[0];
@@ -138,34 +290,90 @@
     logLines.length = Math.min(logLines.length, 60);
     $('log').textContent = logLines.map((l) => l.time + '  ' + l.name.padEnd(24) + l.json + (l.count > 1 ? '  x' + l.count : '')).join('\n');
     $('gesture').textContent = name + (message.type === 'command' ? ': ' + message.text : '');
+    const tile = $('tile-' + message.type);
+    if (tile) { tile.classList.add('hit'); setTimeout(() => tile.classList.remove('hit'), 350); }
   });
   remote.onNote((text) => say(text));
+
+  function pill(element, text, kind) {
+    element.textContent = text;
+    element.className = 'pill' + (kind ? ' ' + kind : '');
+  }
 
   function showRemote() {
     const state = remote.getState(), cal = state.calibration;
     $('needle').style.transform = 'rotate(' + ((dial - 0.5) * 270) + 'deg)';
     $('level').textContent = dial.toFixed(2);
-    const clutch = $('clutch');
-    if (!cal) { clutch.textContent = 'not calibrated'; clutch.className = ''; }
-    else if (state.angle === null) { clutch.textContent = '--'; clutch.className = ''; }
-    else {
-      clutch.textContent = (state.clutch ? 'ON' : 'off') + '  (' + state.angle.toFixed(0) + ' deg from level)' + (state.twisting ? '  twisting' : '');
-      clutch.className = state.clutch ? 'on' : 'off';
-    }
+
+    if (!state.connected) pill($('clutch'), 'Not connected');
+    else if (!cal) pill($('clutch'), 'Calibrate first', 'warn');
+    else if (state.clutch) pill($('clutch'), 'Ready', 'good');
+    else pill($('clutch'), 'Arm not level: gestures paused');
+
+    // Wrist turn: a bar growing from the middle, 120 degrees to each side.
+    const roll = state.roll === null ? 0 : Math.max(-120, Math.min(120, state.roll));
+    $('rollBar').style.left = (roll >= 0 ? 50 : 50 + roll / 2.4) + '%';
+    $('rollBar').style.width = Math.abs(roll) / 2.4 + '%';
+    $('rollText').textContent = state.roll === null ? '--' : state.roll.toFixed(0) + ' deg from rest';
+
+    // Flick strength against the wearer's threshold; the scale is twice the threshold.
+    flickPeak = Math.max(Math.abs(state.flickRate), flickPeak * 0.93);
+    $('flickBar').style.width = Math.min(100, flickPeak / (state.flickMin * 2) * 100) + '%';
+    $('flickMark').style.left = '50%';
+    $('flickText').textContent = Math.round(flickPeak) + ' / ' + Math.round(state.flickMin) + ' deg/s';
+
+    $('angle').textContent = state.angle === null ? '--' : state.angle.toFixed(0) + ' deg  (gestures within ' + remote.CONFIG.clutchDegrees + ')';
     $('twistAxis').textContent = cal ? cal.twistAxis + (cal.twistSign > 0 ? '  (+ is clockwise)' : '  (- is clockwise)') : '--';
     $('flickAxis').textContent = cal ? cal.flickAxis + (cal.flickSign > 0 ? '  (+ is right)' : '  (- is right)') : '--';
     const t = state.tapCheck;
     $('tapCheck').textContent = t.doubleTaps === 0 ? 'double-tap a few times to check' : t.withTapBefore + ' of ' + t.doubleTaps + ' double-taps';
     $('missedFlick').textContent = state.missedFlick || '--';
-    $('roll').textContent = state.roll === null ? '--' : state.roll.toFixed(0) + ' deg from rest';
-    $('lift').textContent = state.lift === null ? (cal ? 'calibrate again to add the raise pose' : '--')
-      : state.lift.toFixed(0) + ' deg  (microphone above ' + remote.CONFIG.raiseDegrees + ')';
-    $('sending').textContent = state.listening ? "The band's microphone is being sent to Deepgram now. Lower your arm to stop." : '';
-    if (state.heard) $('heard').textContent = state.heard;
-    $('keyState').textContent = state.hasKey ? 'Key set for this tab.' : 'No key: raise to talk is off.';
+
+    $('motionRate').textContent = state.motionRate + ' samples a second';
+
+    // Voice
+    const mic = state.mic, w = state.wake;
+    const micText = { off: 'Off', 'no-key': 'No key: voice is off', starting: 'Starting...', listening: 'Listening', muted: 'Muted', error: 'Stopped' }[mic.status];
+    if (w.held) pill($('micState'), 'Push to talk', 'blue');
+    else if (w.armed) pill($('micState'), 'Heard “Vexo”: go on', 'blue');
+    else pill($('micState'), micText, mic.status === 'listening' ? 'good' : mic.status === 'error' ? 'warn' : '');
+    $('mute').textContent = mic.muted ? 'Unmute' : 'Mute';
+    $('sending').textContent = mic.on ? "The band's microphone is being sent to Deepgram now. Press Mute to stop." : '';
+    const heard = $('heard');                         // what Deepgram hears, the command part in colour
+    if (w.armed || w.held) { heard.textContent = ''; const b = document.createElement('b'); b.textContent = w.pending || '...'; heard.append(b); }
+    else heard.textContent = state.heard ? '“' + state.heard + '”' : '';
+    // Loudness: the band reports dB below full scale; 60 (quiet) is an empty bar, 10 (loud) a full one.
+    $('loudBar').style.width = mic.loudness === null ? '0' : Math.max(0, Math.min(100, (60 - mic.loudness) * 2)) + '%';
+    $('loudText').textContent = mic.loudness === null ? '--' : mic.loudness + ' dB below full';
+    if (document.activeElement !== $('gain')) $('gain').value = mic.gainDb;
+
+    // The hub's active device: on the page, because the band's light is blue while the microphone is on.
+    $('activeName').textContent = state.active ? state.active.device || 'Active device' : 'No active device';
+    $('swatch').style.background = state.active && state.active.color ? state.active.color : 'transparent';
+
+    if (latest) $('wizMotion').firstElementChild.style.width = Math.min(100, Math.hypot(latest.gx, latest.gy, latest.gz) / 4) + '%';
   }
 
-  // The Deepgram key: typed here, kept in sessionStorage only, handed to the module. Never in a file.
+  function frame() {
+    drawGraphs();
+    showRemote();
+    requestAnimationFrame(frame);
+  }
+  frame();
+
+  // ---- Moments from the module: the wake word, an error from the hub ----
+  remote.onSignal((kind) => {
+    if (kind === 'wake') beep(1320);
+    else if (kind === 'wake-timeout') beep(330);
+    else if (kind === 'error') {
+      beep(220);
+      $('gesture').textContent = 'Error from the hub';
+      document.body.classList.add('error');
+      setTimeout(() => document.body.classList.remove('error'), 900);
+    }
+  });
+
+  // ---- Voice: the Deepgram key is typed here, kept in sessionStorage only, handed to the module ----
   const KEY_NAME = 'vexo-deepgram-key';
   remote.setDeepgramKey(sessionStorage.getItem(KEY_NAME) || '');
   $('deepgramKey').onchange = () => {
@@ -176,9 +384,19 @@
     remote.setDeepgramKey(key);
   };
   $('forgetKey').onclick = () => { sessionStorage.removeItem(KEY_NAME); remote.setDeepgramKey(''); };
+  $('mute').onclick = () => remote.setMuted(!remote.getState().mic.muted);
+  $('gain').onchange = () => remote.setMicGain($('gain').value);
 
-  // The last 10 seconds of raw motion, to save as a file when a gesture needs tuning.
-  const recent = [];
+  // Push to talk: hold the spacebar (not while typing in a field).
+  const typing = (e) => ['INPUT', 'TEXTAREA', 'BUTTON'].includes(e.target.tagName);
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || typing(e)) return;
+    e.preventDefault();                              // no page scroll
+    if (!e.repeat) remote.pushToTalk(true);
+  });
+  window.addEventListener('keyup', (e) => { if (e.code === 'Space') remote.pushToTalk(false); });
+  window.addEventListener('blur', () => remote.pushToTalk(false));
+
   $('saveMotion').onclick = () => {
     const file = new Blob([JSON.stringify({ calibration: remote.getState().calibration, samples: recent })], { type: 'application/json' });
     const link = document.createElement('a');
@@ -188,52 +406,167 @@
     URL.revokeObjectURL(link.href);
   };
 
-  const pause = (ms) => new Promise((done) => setTimeout(done, ms));
-  async function countdown(text) {                   // time to get into the pose
-    for (let n = 3; n > 0; n--) { $('prompt').textContent = text + '  Starting in ' + n + '...'; await pause(1000); }
-  }
-  async function pose(getReady, doing) {
-    await countdown(getReady);
-    $('prompt').textContent = doing + '  Recording 2 seconds...';
-    return remote.recordPose();
-  }
+  // ---- Calibration: three poses, one at a time, each checked before the next ----
+  const POSES = [
+    { kind: 'level', short: 'Level', icon: '⌚', title: 'Hold your arm level', text: 'As if reading a watch. Keep it still.', doing: 'Hold still' },
+    { kind: 'twist', short: 'Twist', icon: '🔄', title: 'Twist like a doorknob', text: 'Start by turning clockwise, then keep turning back and forth.', doing: 'Keep twisting' },
+    { kind: 'flick', short: 'Flick', icon: '👋', title: 'Flick your hand side to side', text: 'Forearm still, hand waves. Start to the right, then keep going.', doing: 'Keep flicking' },
+  ];
+  let wizardRun = 0;                                 // changes when the wizard is cancelled or restarted
 
-  $('calibrate').onclick = async () => {
-    $('calibrate').disabled = true;
+  function beep(pitch) {                             // so you can watch your arm, not the screen
     try {
-      const level = await pose('1 of 4: hold your arm level, as if reading a watch.', 'Hold still.');
-      const twist = await pose('2 of 4: twist like a doorknob. Start by turning clockwise.', 'Twist back and forth.');
-      const flick = await pose('3 of 4: flick your hand side to side. Start to the right.', 'Flick side to side.');
-      const raise = await pose('4 of 4: raise your wrist to your mouth, as if speaking into it.', 'Hold it there.');
-      const cal = remote.finishCalibration(level, twist, flick, raise);
-      $('prompt').textContent = 'Calibrated and saved. Your raise pose is ' + cal.raiseDegrees.toFixed(0) + ' degrees above level'
-        + (cal.raiseDegrees <= remote.CONFIG.raiseDegrees + 5 ? ': too close to the ' + remote.CONFIG.raiseDegrees + ' needed for the microphone. Raise higher, or lower raiseDegrees in CONFIG.' : '.');
-    } catch (e) {
-      $('prompt').textContent = e.message + ' Press Calibrate to try again.';
-    }
-    $('calibrate').disabled = !remote.getState().connected;
-  };
-  draw();
+      sound = sound || new AudioContext();
+      const tone = sound.createOscillator(), volume = sound.createGain();
+      tone.frequency.value = pitch;
+      volume.gain.setValueAtTime(0.15, sound.currentTime);
+      volume.gain.exponentialRampToValueAtTime(0.001, sound.currentTime + 0.18);
+      tone.connect(volume).connect(sound.destination);
+      tone.start();
+      tone.stop(sound.currentTime + 0.2);
+    } catch { /* no sound: the screen still shows it */ }
+  }
 
+  function showStep(index, done) {
+    $('wizSteps').replaceChildren(...POSES.map((p, i) => {
+      const step = document.createElement('div');
+      step.textContent = (i < index || done ? '✓ ' : (i + 1) + '. ') + p.short;
+      step.className = i < index || done ? 'done' : i === index ? 'now' : '';
+      return step;
+    }));
+  }
+
+  function showPhase(count, label, kind) {
+    $('wizCount').textContent = count;
+    $('wizCount').className = kind === 'ok' ? 'ok' : '';
+    $('wizLabel').textContent = label;
+    $('wizLabel').className = kind === 'rec' ? 'rec' : '';
+  }
+
+  function recordingBar(on) {
+    const bar = $('wizBar').firstElementChild;
+    $('wizBar').style.visibility = on ? 'visible' : 'hidden';
+    bar.style.transition = 'none';
+    bar.style.width = '0';
+    if (on) requestAnimationFrame(() => requestAnimationFrame(() => {
+      bar.style.transition = 'width ' + remote.CONFIG.poseMs + 'ms linear';
+      bar.style.width = '100%';
+    }));
+  }
+
+  /** Wait for a click on Try again. Resolves false if the wizard was cancelled meanwhile. */
+  function tryAgain(run) {
+    $('wizRetry').style.display = '';
+    return new Promise((resolve) => {
+      const check = setInterval(() => { if (run !== wizardRun) { clearInterval(check); resolve(false); } }, 200);
+      $('wizRetry').onclick = () => { clearInterval(check); $('wizRetry').style.display = 'none'; resolve(true); };
+    });
+  }
+
+  function closeWizard() {
+    wizardRun += 1;
+    $('wizard').classList.remove('open');
+  }
+  $('wizCancel').onclick = closeWizard;
+
+  async function calibrate() {
+    const run = ++wizardRun;
+    const poses = {};
+    $('wizard').classList.add('open');
+    $('wizSummary').style.display = 'none';
+    $('wizRetry').style.display = 'none';
+    $('wizCancel').textContent = 'Cancel';
+    $('wizMotion').style.display = '';
+
+    for (let i = 0; i < POSES.length; i++) {
+      const p = POSES[i];
+      for (;;) {
+        showStep(i, false);
+        $('wizIcon').textContent = p.icon;
+        $('wizTitle').textContent = p.title;
+        $('wizText').textContent = p.text;
+        $('wizProblem').textContent = '';
+        recordingBar(false);
+        for (let n = 3; n > 0; n--) {                // time to get into the pose
+          showPhase(n, 'Get ready');
+          await pause(1000);
+          if (run !== wizardRun) return;
+        }
+        beep(880);
+        showPhase('●', p.doing + ': recording', 'rec');
+        recordingBar(true);
+        const samples = await remote.recordPose();
+        if (run !== wizardRun) return;
+        beep(440);
+        recordingBar(false);
+        const problem = remote.checkPose(p.kind, samples, poses);
+        if (!problem) {
+          poses[p.kind] = samples;
+          showPhase('✓', 'Got it', 'ok');
+          await pause(800);
+          if (run !== wizardRun) return;
+          break;
+        }
+        showPhase('', '');
+        $('wizProblem').textContent = problem;
+        if (!await tryAgain(run)) return;
+      }
+    }
+
+    try {
+      const cal = remote.finishCalibration(poses.level, poses.twist, poses.flick);
+      const rows = [
+        ['Twist axis', cal.twistAxis], ['Flick axis', cal.flickAxis],
+        ['Your flick', Math.round(cal.flickPeak) + ' deg/s (a flick must reach ' + Math.round(remote.getState().flickMin) + ')'],
+      ];
+      $('wizSummary').replaceChildren(...rows.map(([name, value]) => {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td class="muted"></td><td></td>';
+        row.cells[0].textContent = name;
+        row.cells[1].textContent = value;
+        return row;
+      }));
+      showStep(POSES.length, true);
+      $('wizIcon').textContent = '✅';
+      $('wizTitle').textContent = 'Calibrated';
+      $('wizText').textContent = 'Saved in this browser. Hold your arm level and try a twist, a flick and a tap.';
+      $('wizSummary').style.display = 'table';
+      say('Calibrated.');
+    } catch (e) {
+      $('wizIcon').textContent = '⚠️';
+      $('wizTitle').textContent = 'That did not work';
+      $('wizText').textContent = e.message;
+    }
+    showPhase('', '');
+    $('wizMotion').style.display = 'none';
+    $('wizCancel').textContent = 'Done';
+  }
+  $('calibrate').onclick = calibrate;
+
+  // ---- Connecting ----
   function setConnected(on) {
     $('calibrate').disabled = !on;
     $('connect').disabled = on;
     $('disconnect').disabled = !on;
+    pill($('link'), on ? 'Connected' : 'Not connected', on ? 'good' : '');
+    if (!on) closeWizard();
   }
 
   function addTap(kind) {
-    const time = new Date().toLocaleTimeString();
-    $('taps').textContent = time + '  ' + kind + '\n' + $('taps').textContent;
+    $('taps').textContent = new Date().toLocaleTimeString() + '  ' + kind + '\n' + $('taps').textContent.slice(0, 2000);
   }
 
   $('connect').onclick = async () => {
     try {
-      say('Connecting... pick Vexo-HACK-28 in the list.');
-      band = await Band.connect(BAND, SIM ? { transport: 'sim' } : {});
+      say('Connecting... pick ' + NAME + ' in the list. If it is missing: double-tap the band, and close any other tab that uses it.');
+      const sim = SIM ? new SimTransport(BAND) : null;
+      if (sim) window.sim = sim;                     // pretend band: direct it from the console
+      band = await Band.connect(BAND, sim ? { transport: sim } : {});
       setConnected(true);
       say('Connected to ' + band.name + '.');
 
       band.on('motion', (m) => {
+        latest = m;
         recent.push({ t: m.t, ax: m.ax, ay: m.ay, az: m.az, gx: m.gx, gy: m.gy, gz: m.gz });
         if (recent.length > POINTS) recent.shift();
         for (const g of graphs) {
@@ -248,12 +581,12 @@
       });
       band.on('disconnect', (e) => {
         setConnected(false);
-        say('Disconnected (' + e.reason + ').');
+        say('Disconnected (' + e.reason + '). Double-tap the band before connecting again.');
       });
 
-      await remote.attach(band);                     // motion at 100 a second, both sensors, plus events
+      await remote.attach(band);                     // motion at 100 a second, both sensors, events, microphone
       await band.configure({ battery: true });
-      if (!remote.getState().calibration) $('prompt').textContent = 'Press Calibrate before using gestures.';
+      if (!remote.getState().calibration) say('Connected to ' + band.name + '. Press Calibrate before using gestures.');
     } catch (e) {
       setConnected(false);
       say(e.message);                                // the library's messages say what to do next

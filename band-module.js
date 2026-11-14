@@ -1,29 +1,42 @@
-// Band module for the universal remote: wrist gestures in, messages out.
+// Band module for the universal remote: wrist gestures and voice in, messages out.
 // Transport-free: the hub glue calls onEvent() and handle(); nothing here knows which
 // device is active. The page hands in a connected band with attach(band).
 
-import { CONFIG, createDetector, createRaiseDetector, computeCalibration } from './gestures.js';
+import { CONFIG, checkPose, createDetector, computeCalibration } from './gestures.js';
+import { createWakeListener } from './wake.js';
 import { deepgramLink } from './speech.js';
 
-export { CONFIG };
+export { CONFIG, checkPose };
 
 const STORAGE_KEY = 'vexo-band-calibration';
-const listeners = new Set();     // outgoing messages
-const noteListeners = new Set(); // short sentences for the person (problems, hints)
+const listeners = new Set();       // outgoing messages
+const noteListeners = new Set();   // short sentences for the person (problems, hints)
+const signalListeners = new Set(); // moments the page shows or plays: 'wake', 'wake-timeout', 'error', 'active'
 
 let band = null;
 let calibration = loadCalibration();
 let detector = calibration ? createDetector(calibration, CONFIG) : null;
-let raiser = calibration && calibration.raiseSign ? createRaiseDetector(calibration, CONFIG) : null;
-let deepgramKey = '';            // handed in by the page; never stored here
-let voice = null;                // the raise-to-talk session that is running, or null
-let recording = null;            // samples of the calibration pose being recorded
-let outbox = [];                 // messages waiting to leave the motion handler
-let baseColour = null;           // the LED colour to return to after a flash (null = off)
+let recording = null;              // samples of the calibration pose being recorded
+let outbox = [];                   // messages waiting to leave the motion handler
+let active = null;                 // the hub's active device: { device, color }
 let lastFlash = 0;
 let flashing = false;
 let lastTapTime = -Infinity;
+let slowedDown = false;            // motion was lowered after dropped stream data
 const tapCheck = { doubleTaps: 0, withTapBefore: 0 };
+
+// Voice
+let deepgramKey = '';              // handed in by the page; never stored here
+let muted = false;
+let micOn = false;                 // the band's microphone is on (its light is locked blue)
+let micStatus = 'off';             // 'off' | 'no-key' | 'starting' | 'listening' | 'muted' | 'error'
+let micGainDb = CONFIG.micGainDb;
+let loudness = null;               // the band's own loudness reading, dB below full scale (smaller = louder)
+let link = null;                   // the open connection to Deepgram
+let heard = '';                    // the newest text from Deepgram
+let wakeTimer = 0;
+let micQueue = Promise.resolve();  // microphone changes run one after another
+const wake = createWakeListener(CONFIG);
 
 // ---- The module interface -------------------------------------------------------------
 
@@ -33,9 +46,20 @@ export function onEvent(callback) {
   return () => listeners.delete(callback);
 }
 
-/** Accept an incoming message from the hub. So far it only remembers the active colour. */
+/**
+ * Accept an incoming message from the hub.
+ * While the microphone is on the band's light is locked blue, so the active device and
+ * errors are shown on the page (onSignal) and no LED command is sent.
+ */
 export function handle(message) {
-  if (message && message.type === 'active' && typeof message.color === 'string') baseColour = message.color;
+  if (!message) return;
+  if (message.type === 'active') {
+    active = { device: String(message.device ?? ''), color: typeof message.color === 'string' ? message.color : null };
+    signal('active');
+    showColour();
+  } else if (message.type === 'error') {
+    signal('error');
+  }
 }
 
 // ---- For the page ---------------------------------------------------------------------
@@ -46,15 +70,25 @@ export function onNote(callback) {
   return () => noteListeners.delete(callback);
 }
 
-/** Start working with a connected band: 100 samples a second, both sensors, plus events. */
+/** Call `callback(kind)` at moments to show or play: 'wake', 'wake-timeout', 'error', 'active'. */
+export function onSignal(callback) {
+  signalListeners.add(callback);
+  return () => signalListeners.delete(callback);
+}
+
+/** Start working with a connected band: 100 samples a second, both sensors, events, microphone. */
 export async function attach(connectedBand) {
   band = connectedBand;
+  slowedDown = false;
   band.on('motion', onMotion);
   band.on('tap', (e) => onTap('tap', e));
   band.on('double-tap', (e) => onTap('double-tap', e));
-  band.on('audio', (a) => { if (voice && voice.link) voice.link.packet(a.opus); });
-  band.on('disconnect', () => { band = null; recording = null; endVoice(); });
+  band.on('audio', (a) => { if (link) link.packet(a.opus); });
+  band.on('mic-level', (e) => { loudness = e.rmsDb; });
+  band.on('notice', onNotice);
+  band.on('disconnect', () => { band = null; recording = null; micOn = false; loudness = null; closeLink(); micStatus = 'off'; });
   await band.configure({ motion: CONFIG.motionRate, sensors: 'both', events: true });
+  changeMic();
 }
 
 /** Record the motion of one calibration pose for CONFIG.poseMs. Resolves with the samples. */
@@ -67,56 +101,80 @@ export function recordPose() {
   }, CONFIG.poseMs));
 }
 
-/** Work out and save the calibration from the four recorded poses. Throws with a sentence to show. */
-export function finishCalibration(level, twist, flick, raise) {
-  calibration = computeCalibration(level, twist, flick, raise, CONFIG);
+/** Work out and save the calibration from the three recorded poses. Throws with a sentence to show. */
+export function finishCalibration(level, twist, flick) {
+  calibration = computeCalibration(level, twist, flick, CONFIG);
   detector = createDetector(calibration, CONFIG);
-  raiser = calibration.raiseSign ? createRaiseDetector(calibration, CONFIG) : null;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(calibration)); } catch { /* no storage: keep it in memory */ }
   return calibration;
 }
 
-/** What the page shows: clutch, calibrated axes, and the tap-before-double-tap check. */
+/** Everything the page shows. */
 export function getState() {
+  const d = detector ? detector.state : null;
   return {
     connected: band !== null,
     calibration,
-    clutch: detector ? detector.state.clutch : false,
-    angle: detector ? detector.state.angle : null,
-    twisting: detector ? detector.state.twisting : false,
-    missedFlick: detector ? detector.state.missedFlick : null,
-    roll: detector ? detector.state.roll : null,
-    lift: raiser ? raiser.state.lift : null,
-    listening: voice !== null && voice.micOn,
-    heard: voice ? voice.heard : '',
-    hasKey: deepgramKey !== '',
+    clutch: d ? d.clutch : false,
+    angle: d ? d.angle : null,
+    twisting: d ? d.twisting : false,
+    missedFlick: d ? d.missedFlick : null,
+    roll: d ? d.roll : null,
+    twistRate: d ? d.twistRate : 0,
+    flickRate: d ? d.flickRate : 0,
+    flickMin: d ? d.flickMin : CONFIG.flickMinDps,
+    motionRate: slowedDown ? CONFIG.motionFallbackRate : CONFIG.motionRate,
     tapCheck: { ...tapCheck },
+    active,
+    mic: { status: micStatus, on: micOn, muted, gainDb: micGainDb, loudness },
+    wake: { ...wake.state },
+    heard,
+    hasKey: deepgramKey !== '',
   };
 }
 
 /** The Deepgram key typed into the page ('' forgets it). Kept in this variable only. */
 export function setDeepgramKey(key) {
-  deepgramKey = String(key || '').trim();
+  const next = String(key || '').trim();
+  if (next === deepgramKey) return;
+  deepgramKey = next;
+  changeMic(true);
 }
 
-// ---- Inside ---------------------------------------------------------------------------
+/** The mute button: true turns the band's microphone off, false turns it back on. */
+export function setMuted(on) {
+  muted = Boolean(on);
+  changeMic();
+}
+
+/** Try another microphone gain (dB, -20 to +20) while tuning. CONFIG.micGainDb is the one used at connect. */
+export async function setMicGain(db) {
+  micGainDb = Math.max(-20, Math.min(20, Math.round(Number(db) * 2) / 2));
+  if (!band) return;
+  try { await band.setMicGain(micGainDb); } catch (e) { note(e.message); }
+}
+
+/** Push to talk (the spacebar): while on, everything said is one command, no wake word needed. */
+export function pushToTalk(on) {
+  if (on && !link) { note(muted ? 'The microphone is muted.' : 'The microphone is not on yet.'); return; }
+  wake.pushToTalk(on, Date.now());
+  if (!on && link) link.restart();                 // asks Deepgram to finish the sentence now
+}
+
+// ---- Inside: gestures -----------------------------------------------------------------
 
 function loadCalibration() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return saved && saved.twistAxis && saved.flickAxis && saved.rollSign && Array.isArray(saved.gravity) ? saved : null;   // older saves lack rollSign: calibrate again
-  } catch { return null; }                     // no storage (tests) or a broken entry
+    // Older saves lack rollSign: calibrate again.
+    return saved && saved.twistAxis && saved.flickAxis && saved.rollSign && Array.isArray(saved.gravity) ? saved : null;
+  } catch { return null; }                         // no storage (tests) or a broken entry
 }
 
 // Runs 100 times a second: collect and detect only, everything slow happens later.
 function onMotion(sample) {
   if (recording) { recording.push(sample); return; }
-  if (raiser) {
-    const change = raiser.update(sample);
-    if (change === 'raise') setTimeout(startVoice, 0);
-    else if (change === 'lower') setTimeout(endVoice, 0);
-  }
-  if (detector && !voice) send(detector.update(sample));   // gestures pause while the microphone is on
+  if (detector) send(detector.update(sample));
 }
 
 function onTap(kind, event) {
@@ -125,7 +183,15 @@ function onTap(kind, event) {
     tapCheck.doubleTaps += 1;
     if (event.t - lastTapTime <= CONFIG.tapCheckMs) tapCheck.withTapBefore += 1;
   }
-  if (detector && !recording && !voice) send(detector.tap(kind, event.t));
+  if (detector && !recording) send(detector.tap(kind, event.t));
+}
+
+// The link could not keep up (motion and sound share it): halve the motion rate, once.
+function onNotice(notice) {
+  if (notice.kind !== 'stream-dropped' || slowedDown || !band) return;
+  slowedDown = true;
+  note('The link dropped stream data: motion lowered to ' + CONFIG.motionFallbackRate + ' samples a second.');
+  band.configure({ motion: CONFIG.motionFallbackRate }).catch((e) => note(e.message));
 }
 
 function send(messages) {
@@ -149,108 +215,112 @@ function note(text) {
   for (const listener of noteListeners) listener(text);
 }
 
+function signal(kind) {
+  for (const listener of signalListeners) listener(kind);
+}
+
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Show our own colour again (or off). */
-async function restoreLed() {
-  if (!band) return;
-  if (baseColour) await band.setLed(baseColour); else await band.ledOff();
+// ---- Inside: the LED. Only while the microphone is off; with it on the light is locked blue.
+
+async function showColour() {
+  if (!band || micOn) return;
+  try {
+    if (active && active.color) await band.setLed(active.color); else await band.ledOff();
+  } catch (e) {
+    if (e.code !== 'denied' && e.code !== 'not-connected') note(e.message);
+  }
 }
 
 /** A short white flash, then back to our colour. Never more often than CONFIG.flashGapMs. */
 async function flash() {
   const now = Date.now();
-  if (!band || flashing || now - lastFlash < CONFIG.flashGapMs) return;
+  if (!band || micOn || flashing || now - lastFlash < CONFIG.flashGapMs) return;
   flashing = true;
   lastFlash = now;
   try {
     await band.setLed('#ffffff');
     await pause(CONFIG.flashMs);
-    await restoreLed();
   } catch (e) {
     if (e.code !== 'denied' && e.code !== 'not-connected') note(e.message);   // denied: the microphone owns the light
-  } finally {
-    flashing = false;
   }
+  await showColour();
+  flashing = false;
 }
 
-// ---- Raise to talk --------------------------------------------------------------------
-// Raise: microphone on, sound to Deepgram, gestures paused. The command is sent once: when
-// the speaker has stopped for CONFIG.voiceEndMs, or when the arm is level again.
+// ---- Inside: voice --------------------------------------------------------------------
+// The microphone is on from connect and its sound goes to Deepgram the whole time. A wake
+// word ("Vexo ...") or the spacebar turns what is said into one command message.
 
-async function startVoice() {
-  if (voice || !band) return;
-  if (!deepgramKey) { note('Raise to talk needs a Deepgram key: paste it into the key field.'); return; }
-  const session = { link: null, micOn: false, finals: [], heard: '', endTimer: 0, maxTimer: 0, closing: false };
-  voice = session;
-  session.link = deepgramLink({ key: deepgramKey });
-  session.link.start({
-    onText: ({ final, text }) => {
-      clearTimeout(session.endTimer);
-      if (final) {
-        session.finals.push(text);
-        session.endTimer = setTimeout(() => closeVoice(session), CONFIG.voiceEndMs);
-      }
-      session.heard = [...session.finals, final ? '' : text].join(' ').trim();
-    },
-    onState: (state) => { if (state === 'off') finishVoice(session); },
-    onError: (problem) => {
-      note(VOICE_PROBLEMS[problem] || 'Deepgram stopped.');
-      finishVoice(session);
+/** Bring the microphone to where it should be now. `restart` reconnects even if it is on (a new key). */
+function changeMic(restart = false) {
+  micQueue = micQueue.then(async () => {
+    const wanted = band !== null && !muted && deepgramKey !== '';
+    if (micOn && (!wanted || restart)) await micOff();
+    if (!band) micStatus = 'off';
+    else if (muted) micStatus = 'muted';
+    else if (!deepgramKey) { micStatus = 'no-key'; note('Voice needs a Deepgram key: paste it into the key field.'); }
+    else if (!micOn) await micStart();
+  }).catch((e) => note(e.message));
+}
+
+async function micStart() {
+  micStatus = 'starting';
+  const mine = deepgramLink({ key: deepgramKey });
+  link = mine;
+  mine.start({
+    onText: ({ final, text }) => { heard = text; voice(wake.text(text, final, Date.now())); },
+    onState: (state) => { if (state === 'listening' && link === mine) micStatus = 'listening'; },
+    onError: (problem) => {                        // Deepgram stopped by itself: microphone off, say why
+      if (link !== mine) return;
+      link = null;
+      note((VOICE_PROBLEMS[problem] || 'Deepgram stopped.') + ' Press Unmute to try again.');
+      micQueue = micQueue.then(async () => { await micOff(); micStatus = 'error'; muted = true; });
     },
   });
-  session.maxTimer = setTimeout(() => closeVoice(session), CONFIG.voiceMaxMs);
   try {
-    await band.configure({ audio: true });       // the band's light goes solid blue
-    session.micOn = true;
-    if (session.closing) await micOff(session);  // the arm came down while it was starting
+    await band.setMicGain(micGainDb);
+    await band.configure({ audio: true, micLevel: true });   // the band's light goes solid blue
+    micOn = true;
+    wakeTimer = setInterval(() => voice(wake.tick(Date.now())), 200);
   } catch (e) {
-    note(e.message);
-    closeVoice(session);
+    closeLink();
+    micStatus = 'error';
+    throw e;
   }
 }
 
-/** The arm is level again (or the link dropped). */
-function endVoice() {
-  if (voice) closeVoice(voice);
-}
-
-/** Stop listening: microphone off, ask Deepgram for the last words. finishVoice() follows. */
-async function closeVoice(session) {
-  if (session.closing) return;
-  session.closing = true;
-  clearTimeout(session.endTimer);
-  clearTimeout(session.maxTimer);
-  if (session.micOn) await micOff(session);
-  session.link.stop();                           // answers with state 'off' once the last words are in
-}
-
-async function micOff(session) {
-  session.micOn = false;
+async function micOff() {
+  closeLink();
+  micOn = false;
+  loudness = null;
   if (!band) return;
   try {
-    await band.configure({ audio: false });
-    await restoreLed();                          // the microphone's blue light is gone: show our colour again
+    await band.configure({ audio: false, micLevel: false });
   } catch (e) {
     if (e.code !== 'not-connected') note(e.message);
   }
+  await showColour();                              // the blue light is gone: show our colour again
 }
 
-/** Deepgram has closed: send the one command, unless nothing was said. */
-function finishVoice(session) {
-  if (voice !== session) return;
-  clearTimeout(session.endTimer);
-  clearTimeout(session.maxTimer);
-  if (!session.closing) { session.closing = true; if (session.micOn) micOff(session); }
-  voice = null;
-  const text = session.finals.join(' ').trim();
-  if (text) send([{ type: 'command', text }]);
+function closeLink() {
+  clearInterval(wakeTimer);
+  wake.pushToTalk(false, Date.now());
+  if (link) link.stop();
+  link = null;
+}
+
+function voice(events) {
+  for (const event of events) {
+    if (event.type === 'command') send([{ type: 'command', text: event.text }]);
+    else signal(event.type);                       // 'wake' or 'wake-timeout'
+  }
 }
 
 const VOICE_PROBLEMS = {
   refused: 'Deepgram refused the connection: a wrong key, no credit left, or no internet.',
   closed: 'Deepgram closed the connection.',
   reported: 'Deepgram reported a problem.',
-  'no-key': 'Raise to talk needs a Deepgram key: paste it into the key field.',
+  'no-key': 'Voice needs a Deepgram key: paste it into the key field.',
   'no-socket': 'This browser cannot open the connection to Deepgram.',
 };
