@@ -25,7 +25,9 @@ export function readBodyosConfig(env = process.env) {
   if (url && !/^https?:\/\//.test(url)) throw new Error(`BODYOS_API_URL must start with http:// or https:// (got "${url}")`);
   const deviceId = String(env.BODYOS_DEVICE_ID ?? 'mentra-live');
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(deviceId)) throw new Error('BODYOS_DEVICE_ID: letters, numbers, _ and - only, up to 128');
-  return { url, token: String(env.BODYOS_SESSION_TOKEN ?? ''), deviceId };
+  const parallel = Number(env.BODYOS_PARALLEL ?? 4);
+  if (!Number.isInteger(parallel) || parallel < 1 || parallel > 32) throw new Error(`BODYOS_PARALLEL must be a whole number from 1 to 32 (got "${env.BODYOS_PARALLEL}")`);
+  return { url, token: String(env.BODYOS_SESSION_TOKEN ?? ''), deviceId, parallel };
 }
 
 /** "photo", "video", or null when the API takes neither (judged by the file's extension). */
@@ -112,14 +114,37 @@ export function bodyosClient({ url, token = '', deviceId = 'mentra-live', fetchI
 }
 
 /**
- * Watch `store` and send each new photo and video to the API, one at a time, in order.
- * Returns { ready, drain(), stats }. Call `await drain()` before closing the store.
+ * Watch `store` and send each new photo and video to the API, `parallel` at a time (in the order
+ * they were saved; with more than 1 they may finish out of order).
+ * Returns { ready, drain(), stats }. `stats.pending` counts files not sent yet.
+ * Call `await drain()` before closing the store.
  */
-export function forwardToBodyos(store, { log = console, ...settings } = {}) {
+export function forwardToBodyos(store, { log = console, parallel = 4, ...settings } = {}) {
   const client = bodyosClient(settings);
-  const stats = { stored: 0, failed: 0, skipped: 0 };
+  const stats = { stored: 0, failed: 0, skipped: 0, pending: 0 };
   const dataDir = path.dirname(store.dir); // video events name files relative to data/
-  let queue = Promise.resolve();
+  const waiting = [];
+  let active = 0;
+  let idle = null; // resolves when nothing is waiting or being sent
+  let resolveIdle = null;
+
+  function pump() {
+    while (active < parallel && waiting.length) {
+      const record = waiting.shift();
+      active += 1;
+      forward(record)
+        .catch((err) => log.warn(`BodyOS forwarder: ${err.message}`))
+        .finally(() => {
+          active -= 1;
+          stats.pending -= 1;
+          pump();
+        });
+    }
+    if (active === 0 && waiting.length === 0 && resolveIdle) {
+      resolveIdle();
+      idle = resolveIdle = null;
+    }
+  }
 
   async function forward(record) {
     const file = record.type === 'video' ? path.join(dataDir, record.file) : path.join(store.dir, record.file);
@@ -141,7 +166,9 @@ export function forwardToBodyos(store, { log = console, ...settings } = {}) {
 
   const unsubscribe = store.subscribe((record) => {
     if ((record.type !== 'photo' && record.type !== 'video') || !record.file) return;
-    queue = queue.then(() => forward(record)).catch((err) => log.warn(`BodyOS forwarder: ${err.message}`));
+    waiting.push(record);
+    stats.pending += 1;
+    pump();
   });
 
   // Register at start so a wrong address or token shows up before the first photo.
@@ -158,11 +185,10 @@ export function forwardToBodyos(store, { log = console, ...settings } = {}) {
     stats,
     async drain() {
       await ready;
-      let seen;
-      do {
-        seen = queue;
-        await seen;
-      } while (seen !== queue);
+      while (active > 0 || waiting.length > 0) {
+        idle ??= new Promise((resolve) => (resolveIdle = resolve));
+        await idle;
+      }
       unsubscribe();
     },
   };
@@ -191,7 +217,8 @@ async function main(args) {
   let failed = 0;
   for (const file of files) {
     try {
-      const r = await client.send(file);
+      // The folder name (e.g. data/video/<time>/) keeps "recording.mp4" from different runs apart.
+      const r = await client.send(file, path.basename(path.dirname(path.resolve(file))));
       console.log(`kept ${file} -> ${r.url} (${r.kind}, artifact ${r.artifactId})`);
     } catch (err) {
       failed += 1;

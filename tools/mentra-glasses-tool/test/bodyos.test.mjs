@@ -74,7 +74,7 @@ test('requestId: one per saved file, safe characters, at most 128', () => {
 test('each saved photo is registered and kept in the API, and the artifact is written to events.jsonl', async () => {
   const api = fakeApi({ token: 'secret' });
   const store = new SessionStore(tmp(), 't');
-  const f = forwardToBodyos(store, settings(api, { token: 'secret' }));
+  const f = forwardToBodyos(store, settings(api, { token: 'secret', parallel: 1 })); // 1 at a time: in order
   assert.equal(await f.ready, true);
   await store.savePhoto(jpeg(), 'image/jpeg', { requestId: 'glasses-req' });
   await store.savePhoto(jpeg(), 'image/png');
@@ -90,7 +90,7 @@ test('each saved photo is registered and kept in the API, and the artifact is wr
   assert.equal(kept[0].url, 'http://api/v1/artifacts/photo-1');
   assert.equal(kept[0].kind, 'photo');
   assert.equal(kept[0].file, events(store).find((e) => e.type === 'photo').file);
-  assert.deepEqual(f.stats, { stored: 2, failed: 0, skipped: 0 });
+  assert.deepEqual(f.stats, { stored: 2, failed: 0, skipped: 0, pending: 0 });
 });
 
 test('a busy or unreachable API is retried; after an API restart the glasses are registered again', async () => {
@@ -197,4 +197,39 @@ test('send: a recording on disk (from npm run video) is sent as a video; a rejec
   const tooBig = bodyosClient(settings(fakeApi({ script: [413] })));
   await assert.rejects(tooBig.send(file), /HTTP 413/);
   await assert.rejects(client.send(path.join(dir, 'notes.txt')), /only/);
+});
+
+test('parallel uploads: never more than `parallel` at once, all kept, drain() waits for the last one', async () => {
+  const api = fakeApi();
+  let inFlight = 0;
+  let most = 0;
+  const slow = async (url, init) => {
+    if (!String(url).includes('/glasses/photos')) return api.fetch(url, init);
+    inFlight += 1;
+    most = Math.max(most, inFlight);
+    await new Promise((r) => setTimeout(r, 20));
+    inFlight -= 1;
+    return api.fetch(url, init);
+  };
+  const store = new SessionStore(tmp(), 't');
+  const f = forwardToBodyos(store, settings(api, { fetchImpl: slow, parallel: 4 }));
+  await f.ready;
+  const started = Date.now();
+  for (let i = 0; i < 20; i += 1) await store.savePhoto(jpeg(), 'image/jpeg', { requestId: `frame-${i}` });
+  assert.ok(f.stats.pending > 0);
+  await f.drain();
+  const took = Date.now() - started;
+  await store.close();
+  assert.equal(api.photos.length, 20);
+  assert.equal(most, 4);
+  assert.equal(f.stats.pending, 0);
+  assert.equal(new Set(api.photos.map((p) => p.requestId)).size, 20);
+  assert.ok(took < 20 * 20, `took ${took} ms: not faster than one at a time`);
+});
+
+test('config: BODYOS_PARALLEL is 4 by default and checked', () => {
+  assert.equal(readBodyosConfig({}).parallel, 4);
+  assert.equal(readBodyosConfig({ BODYOS_PARALLEL: '8' }).parallel, 8);
+  assert.throws(() => readBodyosConfig({ BODYOS_PARALLEL: '0' }), /BODYOS_PARALLEL/);
+  assert.throws(() => readBodyosConfig({ BODYOS_PARALLEL: 'lots' }), /BODYOS_PARALLEL/);
 });

@@ -11,6 +11,7 @@
     "receive": "node src/receiver.mjs",
     "video": "bash scripts/record-video.sh",
     "send": "node src/bodyos.mjs",
+    "frames": "node src/frames.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {

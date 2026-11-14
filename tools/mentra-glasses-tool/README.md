@@ -28,6 +28,38 @@ Tested here by sending a real JPEG and a real MP4 the way the glasses do (multip
   Ctrl+C when you are done.
 - macOS may ask whether Node may accept incoming connections: allow it, or the glasses cannot reach it.
 
+## As many pictures per second as possible: `npm run frames`
+
+A photo command costs the glasses seconds over Bluetooth, so commanded photos top out well below one
+per second. The glasses' **live video** carries 15-30 frames per second, so this cuts every frame into
+a JPEG and sends each to the BodyOS API as it is cut:
+
+```bash
+BODYOS_API_URL=http://<Mac running the API>:8000 BODYOS_SESSION_TOKEN=<API token> npm run frames
+```
+
+Then paste the printed RTMP address into Mentra's **Stream** screen (or, on the SDK route, set
+`VIDEO=1` and `RTMP_URL` to it). Each second it prints how many pictures were cut, how many the API
+kept, and how many are still waiting. Ctrl+C stops it: the last pictures are sent, then the
+recording.
+
+- Saved in `data/<time>_stream/`: `photos/` (every picture), `recording.mp4` (the stream itself, also
+  sent to the API), `events.jsonl` (each picture and its API artifact).
+- `FRAMES_PER_SEC=0` (default) keeps every frame; `FRAMES_PER_SEC=5` keeps 5 per second.
+  `FRAME_QUALITY` 2-31 (default 4) trades picture size for quality.
+- `BODYOS_PARALLEL` (default 4) uploads that many pictures at once. If the API is slower than the
+  stream, nothing is dropped: pictures wait on disk and the waiting count grows.
+- Every frame adds up: at 720p about 50 kB each, so 1.5 MB per second, 5 GB per hour, on this Mac and
+  again on the API's Mac.
+- It records one stream. If the glasses stop streaming (or Wi-Fi drops), it finishes and exits: start
+  it again.
+- Uses the same port (1935) as `npm run video`: run one of them.
+
+Measured here with a generated stream (RTMP from ffmpeg, not real glasses) and the real API on the same
+Mac: 720p at 30 fps gave 300 pictures in 10 seconds, all 300 kept, never more than one waiting;
+1080p at 30 fps (about 83 kB each) also kept up at 30 per second. Over Wi-Fi to another Mac it will be
+slower: watch the waiting count.
+
 ## Where the output is kept
 
 Everything is kept in two places:
@@ -38,7 +70,9 @@ Everything is kept in two places:
 | Screenshots from the SDK route and the demo | `data/<time>_<user>/photos/` | Yes, as they arrive |
 | Video clips from the Wi-Fi receiver | `data/video/<time>_<id>/recording.mp4` | Yes, as they arrive |
 | Live-stream recordings (`npm run video`) | `data/video/<time>/recording.mp4` | Yes, when you stop it (Ctrl+C) |
-| Frames cut from the live stream | `data/video/<time>/frames/`, `latest.jpg` | No |
+| Pictures cut from the live stream (`npm run frames`) | `data/<time>_stream/photos/` | Yes, every one as it is cut |
+| Its recording | `data/<time>_stream/recording.mp4` | Yes, when it stops |
+| Frames from `npm run video` (one per second) | `data/video/<time>/frames/`, `latest.jpg` | No (use `npm run frames`) |
 | Events (head, button, battery, what was kept where) | `events.jsonl` in each folder | No |
 
 The API is the Mac runtime's device input API (`make api`, see `docs/api.md` on the API branch).
@@ -74,7 +108,7 @@ The rest of this page is the older route through the Mentra cloud (MentraOS app 
 
 | Part | Status |
 |---|---|
-| Saving events, photos, IMU samples; settings checks; photo/video logic; the live feed; the Wi-Fi receiver; sending photos and videos to the BodyOS API | Tested here (`npm test`, 33 tests) |
+| Saving events, photos, IMU samples; settings checks; photo/video logic; the live feed; the Wi-Fi receiver; sending photos and videos to the BodyOS API; cutting pictures from the live stream | Tested here (`npm test`, 43 tests) |
 | Video receiver (`scripts/record-video.sh`) | Tested here with a fake RTMP push: it made `recording.mp4`, frame screenshots and `latest.jpg` |
 | `/imu` endpoint on the real MentraOS SDK server | Tested here: wrong token refused, good samples saved |
 | **Real glasses end to end** (app registration, the tunnel, photos, the stream) | **Not tested.** No glasses were available. The SDK calls were checked against the installed `@mentra/sdk` 2.1.29 type files, not run against a pair of glasses |
@@ -180,6 +214,8 @@ they ask. Recordings can contain faces and screens: keep `data/` off shared driv
 - `src/live.mjs`: the live feed for the viewer (127.0.0.1 only)
 - `src/demo.mjs`: pretend glasses (`npm run demo`)
 - `src/receiver.mjs`: takes photos and videos straight from the glasses over Wi-Fi (`npm run receive`)
+- `src/frames.mjs`: cuts every frame of the live stream into pictures and sends them on (`npm run frames`)
+- `src/bodyos.mjs`: keeps photos and videos in the BodyOS API; `npm run send -- <files>`
 - `src/session.mjs`: photos, events and video for one glasses session
 - `src/store.mjs`: writes the files, checks IMU samples, keeps names safe
 - `src/config.mjs`: reads and checks `.env`

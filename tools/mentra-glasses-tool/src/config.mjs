@@ -57,6 +57,14 @@ export function readConfig(env = process.env) {
     ingestToken: env.INGEST_TOKEN ?? '',
     // Live feed for the Glasses Viewer app, on this computer only. 0 switches it off.
     livePort: num(env.LIVE_PORT ?? 3001, 'LIVE_PORT'),
+    // npm run frames: pictures cut from the live video. 0 = every frame the glasses send.
+    framesPerSec: num(env.FRAMES_PER_SEC ?? 0, 'FRAMES_PER_SEC'),
+    // JPEG quality for those pictures: 2 (best, biggest) to 31 (smallest).
+    frameQuality: (() => {
+      const q = num(env.FRAME_QUALITY ?? 4, 'FRAME_QUALITY', { min: 2 });
+      if (q > 31 || !Number.isInteger(q)) throw new Error(`FRAME_QUALITY must be a whole number from 2 to 31 (got "${env.FRAME_QUALITY}")`);
+      return q;
+    })(),
     // Team BodyOS API: every photo is also kept there. Empty URL = off.
     bodyos: readBodyosConfig(env),
   };
