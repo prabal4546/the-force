@@ -11,14 +11,5 @@ enum TargetSourceError: Error {
     case ambiguousMarkers
 }
 
-struct MockTargetSource: TargetSource {
-    var nextTarget: TargetID
-
-    func captureTarget() async throws -> TargetID {
-        nextTarget
-    }
-}
-
-// Hardware owner: implement MentraTargetSource here using MentraBluetoothSDK.
-// Request one photo, receive it through the local iPhone upload endpoint, then
-// use Vision barcode recognition to return exactly one TargetID.
+// The real source is Mentra/MentraTargetSource.swift (glasses photo -> QR marker -> TargetID).
+// Mentra/MockTargetSource.swift is the scripted stand-in for the mocked flow and tests.
