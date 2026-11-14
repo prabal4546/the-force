@@ -38,7 +38,7 @@ test('the device ID is the band number, as in the API examples', () => {
 
 test('every body in the contract table passes, exactly as written there', () => {
   for (const body of [
-    { type: 'adjust', delta: 0.05 }, { type: 'adjust', delta: -1 }, { type: 'step', direction: 1 }, { type: 'step', direction: -1 },
+    { type: 'step', direction: 1 }, { type: 'step', direction: -1 },
     { type: 'toggle' }, { type: 'select' }, { type: 'command', text: 'set a ten minute timer' },
   ]) assert.equal(contractProblem(body), null, JSON.stringify(body));
 });
@@ -50,8 +50,7 @@ test('what the API would answer 422 to is caught before it is sent', () => {
     [{ type: 'step', direction: 0 }, /-1 or 1/],
     [{ type: 'step', direction: true }, /-1 or 1/],
     [{ type: 'step' }, /-1 or 1/],
-    [{ type: 'adjust', delta: 1.5 }, /-1 to 1/],
-    [{ type: 'adjust', delta: NaN }, /-1 to 1/],
+    [{ type: 'adjust', delta: 0.05 }, /not a band event/],             // taken out of the contract
     [{ type: 'toggle', at: 12 }, /may not carry "at"/],                 // no extra fields
     [{ type: 'select', device: 'lamp' }, /may not carry/],
     [{ type: 'command', text: '   ' }, /not blank/],
@@ -66,10 +65,9 @@ test('what the API would answer 422 to is caught before it is sent', () => {
 test('the schema file kept from the API repository lists the same five events', () => {
   const schema = JSON.parse(readFileSync(new URL('../contract/band-input.schema.json', import.meta.url), 'utf8'));
   const types = schema.oneOf.map((entry) => entry.properties.type.const).sort();
-  assert.deepEqual(types, ['adjust', 'command', 'select', 'step', 'toggle']);
+  assert.deepEqual(types, ['command', 'select', 'step', 'toggle']);
   for (const entry of schema.oneOf) {
     const body = { type: entry.properties.type.const };
-    if (body.type === 'adjust') body.delta = 0.05;
     if (body.type === 'step') body.direction = 1;
     if (body.type === 'command') body.text = 'lights on';
     assert.deepEqual(Object.keys(body).sort(), [...entry.required].sort());
@@ -78,14 +76,14 @@ test('the schema file kept from the API repository lists the same five events', 
   }
 });
 
-test('everything the gesture detector can send fits the contract', () => {
+test('everything the gesture detector sends fits the contract, except the adjust of the old twist mode', () => {
   const RAD = Math.PI / 180;
   const at = (t, roll, rate = 0) => ({ t, ax: 0, ay: Math.sin(roll * RAD), az: Math.cos(roll * RAD), gx: rate, gy: 0, gz: 0 });
   const level = Array.from({ length: 200 }, (_, i) => at(i * 10, 0));
   const twist = Array.from({ length: 200 }, (_, i) => at(i * 10, 40 * Math.sin(i / 10 + 0.3), 400 * Math.cos(i / 10 + 0.3)));
   const calibration = computeCalibration(level, twist);
   const sent = [];
-  for (const gestures of ['tilt', 'leftRight', 'twistAndSwipe']) {
+  for (const gestures of ['turn', 'tilt', 'leftRight', 'twistAndSwipe']) {
     const detector = createDetector(calibration, { ...CONFIG, gestures });
     let t = 0;
     const feed = (roll, rate, ms) => { for (let i = 0; i < ms / 10; i++) { t += 10; sent.push(...detector.update(at(t, roll, rate))); } };
@@ -101,7 +99,10 @@ test('everything the gesture detector can send fits the contract', () => {
   }
   const kinds = new Set(sent.map((m) => m.type));
   for (const kind of ['step', 'adjust', 'toggle', 'select']) assert.ok(kinds.has(kind), 'the detector made a ' + kind);
-  for (const message of sent) assert.equal(contractProblem(message), null, JSON.stringify(message));
+  for (const message of sent) {
+    if (message.type === 'adjust') assert.match(contractProblem(message), /not a band event/);      // twistAndSwipe only: not sent on
+    else assert.equal(contractProblem(message), null, JSON.stringify(message));
+  }
 });
 
 test('register tells the API the band is connected, in the shape it asks for', async () => {

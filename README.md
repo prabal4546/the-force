@@ -57,18 +57,37 @@ then **Calibrate** and follow the two steps (arm level, then twist starting cloc
 
 | Gesture | Message |
 |---|---|
-| Tip the wrist right (clockwise) and come back | `{ "type": "step", "direction": 1 }` |
-| Tip the wrist left (counter-clockwise) and come back | `{ "type": "step", "direction": -1 }` |
+| A quick turn of the wrist to the right (clockwise) | `{ "type": "step", "direction": 1 }` |
+| A quick turn of the wrist to the left (counter-clockwise) | `{ "type": "step", "direction": -1 }` |
 | Tap | `{ "type": "toggle" }` |
 | Double-tap | `{ "type": "select" }` |
 
-The arm makes one gesture: tip the wrist right or left, like turning a key, and come back.
-`adjust` is no longer sent.
+The arm makes one gesture: turn the wrist quickly, like turning a key. Every quick turn is
+one step in its direction. A slow turn does not count: to step the same way twice, turn
+quickly, come back slowly, turn quickly again. `adjust` is no longer sent.
 
-How it works (`gestures.js`, `gestures: 'tilt'`):
+How it works (`gestures.js`, `gestures: 'turn'`):
 
-- The wrist's angle about the forearm is read from gravity. It is an angle, not a turning
-  speed added up, so it does not drift and a shake or a bump does not move it.
+- Only the wrist's turning about the forearm is looked at, from the gyro. A turn starts when
+  it passes `turnStartDps` and ends when it stops or turns back.
+- It is a step once it has gone `turnOutDegrees` (45, the easy way) or `turnInDegrees` (40),
+  peaked above `turnMinDps` (250 deg/s), and the arm itself turned at most `turnArmShare`
+  (half) of what the wrist turned. So raising, lowering or swinging the arm sends nothing.
+- One turn is one step, however far it goes, and a turn of more than half a circle keeps
+  its direction.
+- Nothing counts while the forearm is more than 50 degrees from level (`clutchDegrees`).
+- Calibration is two poses: arm level, then twist (it gives the forearm's direction in the band).
+
+The numbers come from a recording of the real band, kept as
+`test/fixtures/real-wrist-turns.json` and replayed in the tests: eight deliberate turns of 70
+to 200 degrees at 360 to 1000 deg/s all count, in their direction, and two arm raises and
+four arm swings in the same recording count as nothing.
+
+An older wrist mode, `gestures: 'tilt'`, reads the wrist's angle from gravity instead: tip
+past a line and come back, where coming back never counts. On the real band that dropped
+every turn back the other way, and a turn of more than half a circle came out reversed.
+What follows describes it:
+
 - The centre is wherever the level arm holds still (`settleMs`): thumb up, palm down or
   between. It is the average over that moment, and it keeps following a wrist that rests
   near it. Tipped far enough from the centre for `tiltHoldMs` is one step.
@@ -147,8 +166,9 @@ another address that sends no CORS headers, and so the session token stays out o
     python3 serve.py
 
 The API has no channel back to the band yet, so `active`, `say` and `error` below still come
-only from the test buttons on the page. With the tilt gesture the band sends `step`, `toggle`,
-`select` and `command`; `adjust` is in the contract but only the `twistAndSwipe` mode sends it.
+only from the test buttons on the page. The contract has `step` (-1 left, 1 right, one per
+gesture), `toggle`, `select` and `command`. `adjust` was taken out of it: only the old
+`twistAndSwipe` mode makes one, and `hub.js` does not send it on.
 
 ### Incoming messages
 

@@ -5,11 +5,11 @@
 // The contract, for a band:
 //   POST /v1/devices/connect            { device_id, device_type: 'band', hardware_status }
 //   POST /v1/band/events?device_id=ID   one of the bodies below, with an Idempotency-Key header
-//     { type: 'adjust', delta }         a finite number from -1 to 1
-//     { type: 'step', direction }       the integer -1 or 1
+//     { type: 'step', direction }       the integer -1 (left) or 1 (right), one per gesture
 //     { type: 'toggle' }                nothing else
 //     { type: 'select' }                nothing else
 //     { type: 'command', text }         not blank, at most 4000 characters
+// (`adjust` was in the contract at first and was taken out: the API answers 422 to it now.)
 // The API answers 202 for an event it kept. It forgets its devices when it restarts and then
 // answers 404: register again and send the same event again, under the same key.
 
@@ -21,7 +21,7 @@ export const HUB = {
 };
 
 const ID = /^[a-zA-Z0-9_-]{1,128}$/;
-const FIELDS = { adjust: ['delta'], step: ['direction'], toggle: [], select: [], command: ['text'] };
+const FIELDS = { step: ['direction'], toggle: [], select: [], command: ['text'] };
 
 /** The device ID for a band number: "vexo-28". */
 export function bandDeviceId(number) {
@@ -35,12 +35,9 @@ export function bandDeviceId(number) {
 export function contractProblem(message) {
   if (message === null || typeof message !== 'object' || Array.isArray(message)) return 'not an object';
   const fields = FIELDS[message.type];
-  if (!fields) return `"${message.type}" is not a band event (adjust, step, toggle, select, command)`;
+  if (!fields) return `"${message.type}" is not a band event (step, toggle, select, command)`;
   const extra = Object.keys(message).filter((key) => key !== 'type' && !fields.includes(key));
   if (extra.length) return `${message.type} may not carry "${extra[0]}"`;
-  if (message.type === 'adjust' && !(typeof message.delta === 'number' && Number.isFinite(message.delta) && Math.abs(message.delta) <= 1)) {
-    return 'adjust needs a delta from -1 to 1';
-  }
   if (message.type === 'step' && message.direction !== 1 && message.direction !== -1) return 'step needs the direction -1 or 1';
   if (message.type === 'command') {
     if (typeof message.text !== 'string' || message.text.trim() === '') return 'command needs text that is not blank';

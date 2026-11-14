@@ -4,6 +4,7 @@
 // `roll` degrees turns gravity about x and shows on gx; a swipe (the forearm sweeping sideways) shows on gz only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   CONFIG, angleBetween, checkPose, computeCalibration, clutchAngle, createDetector, swipeThreshold, wristRoll,
 } from '../gestures.js';
@@ -430,10 +431,6 @@ function tip(t0, from, to, stay = 300) {
   return [...out, ...hold(t, 600, from)];
 }
 
-test('tilt is the default', () => {
-  assert.equal(DEFAULT_GESTURES, 'tilt');
-});
-
 test('the wrist angle is read from gravity, clockwise-positive', () => {
   assert.ok(Math.abs(wristRoll([0, Math.sin(40 * RAD), Math.cos(40 * RAD)], CAL) - 40) < 0.5);
   assert.ok(Math.abs(wristRoll([0, -Math.sin(70 * RAD), Math.cos(70 * RAD)], CAL) + 70) < 0.5);
@@ -612,4 +609,106 @@ test('tilt: the page can see why nothing can fire', () => {
   assert.equal(detector.state.why, 'arm turning');
   run(hold(900, 400), detector);
   assert.equal(detector.state.why, null);
+});
+
+// ---- Turn: every quick turn of the wrist is a step in its direction (the default) ----
+
+const TURN = { ...CONFIG, gestures: 'turn', wearingArm: 'right' };      // right arm: 45 degrees right, 40 left
+const turning = (config = TURN) => createDetector(CAL, config);
+/** Hold, turn from one angle to another at `speed` deg/s, hold. */
+const flip = (t0, from, to, speed = 400, rest = 500) => {
+  const list = [...hold(t0, 300, from), ...turn(t0 + 300, from, to, speed)];
+  return [...list, ...hold(list[list.length - 1].t + STEP, rest, to)];
+};
+const endOf = (list) => list[list.length - 1].t + STEP;
+
+test('turn is the default', () => {
+  assert.equal(DEFAULT_GESTURES, 'turn');
+});
+
+test('turn: a quick turn right is a step right, a quick turn left a step left', () => {
+  const detector = turning();
+  assert.deepEqual(run(flip(0, 0, 90), detector), RIGHT);
+  assert.equal(detector.state.movement.result, 'Right');
+  assert.deepEqual(run(flip(0, 0, -90), turning()), LEFT);
+});
+
+test('turn: turning over and back, staying at each end, is right, left, right, left', () => {
+  const detector = turning();
+  let t = 0; const out = [];
+  for (const [from, to] of [[-60, 85], [85, -100], [-100, 60], [60, -100]]) {
+    const list = flip(t, from, to, 500, 600); t = endOf(list); out.push(...run(list, detector));
+  }
+  assert.deepEqual(out, [...RIGHT, ...LEFT, ...RIGHT, ...LEFT]);
+});
+
+test('turn: a turn of more than half a circle keeps its direction', () => {
+  assert.deepEqual(run(flip(0, 85, -115, 900), turning()), LEFT);        // 200 degrees to the left
+  assert.deepEqual(run(flip(0, -100, 100, 900), turning()), RIGHT);
+});
+
+test('turn: a slow turn is free, so the same way twice is: quick, slow back, quick', () => {
+  const detector = turning();
+  const first = flip(0, 0, 90), back = flip(endOf(first), 90, 0, 120), second = flip(endOf(back), 0, 90);
+  assert.deepEqual(run(first, detector), RIGHT);
+  assert.deepEqual(run(back, detector), []);
+  assert.match(detector.state.missed, /too slow: peak 1\d\d of 250/);
+  assert.deepEqual(run(second, detector), RIGHT);
+});
+
+test('turn: a small wobble is nothing, and a turn that falls short says how far it got', () => {
+  const detector = turning();
+  assert.deepEqual(run(flip(0, 0, 15), detector), []);
+  assert.equal(detector.state.missed, null);                            // too small to mention
+  assert.deepEqual(run(flip(1000, 15, 45), detector), []);
+  assert.match(detector.state.missed, /too small: 3\d of 45 degrees/);
+});
+
+test('turn: one long turn is one step, and the bounce at its end is not another', () => {
+  const list = [...hold(0, 300), ...turn(300, 0, 180, 600), ...turn(600, 180, 165, 150), ...hold(700, 500, 165)];
+  assert.deepEqual(run(list, turning()), RIGHT);
+});
+
+test('turn: the arm moving around is not a step, even with the wrist turning in it', () => {
+  const detector = turning();
+  const swing = wrist(300, 300, (s) => 300 * s, () => ({ gz: 350 }));    // the wrist turns 90 while the arm sweeps 105
+  assert.deepEqual(run([...hold(0, 300), ...swing, ...hold(600, 500, 90)], detector), []);
+  assert.match(detector.state.missed, /arm was moving/);
+  const leaky = flip(1200, 90, 0, 500).map((s) => ({ ...s, gy: 0.3 * s.gx }));          // a real wrist leaks a little
+  assert.deepEqual(run(leaky, detector), LEFT);
+});
+
+test('turn: nothing with the arm hanging, and taps still work', () => {
+  const detector = turning();
+  const hanging = [...hold(0, 300, 0, HANGING), ...wrist(300, 300, () => 0, () => ({ ...HANGING, gx: 500 })), ...hold(600, 400, 0, HANGING)];
+  assert.deepEqual(run(hanging, detector), []);
+  const other = turning();
+  run(hold(0, 300), other);
+  other.tap('tap', 300);
+  assert.deepEqual(other.tap('double-tap', 450), [{ type: 'select' }]);
+});
+
+test('turn: the two ways have their own distance, by the arm the band is on', () => {
+  const left = { ...TURN, wearingArm: 'left' };                         // left arm: outward is left
+  assert.deepEqual(run(flip(0, 0, 42), turning(left)), RIGHT);          // inward: 40
+  assert.deepEqual(run(flip(0, 0, -42), turning(left)), []);            // outward: 45
+  assert.deepEqual(run(flip(0, 0, -42), turning()), LEFT);              // right arm: the other way round
+});
+
+test('turn: works on a band that sits crooked', () => {
+  const cal = computeCalibration(turned(hold(0, 2000)), turned(wrist(0, 2000, swing(40))));
+  assert.deepEqual(run(turned(flip(0, 0, 90)), createDetector(cal, TURN)), RIGHT);
+  assert.deepEqual(run(turned(flip(0, 0, -90)), createDetector(cal, TURN)), LEFT);
+});
+
+test('turn: the recording from the real band gives every turn, in its direction, and nothing for the arm', () => {
+  const real = JSON.parse(readFileSync(new URL('./fixtures/real-wrist-turns.json', import.meta.url), 'utf8'));
+  const detector = createDetector(real.calibration, { ...CONFIG, gestures: 'turn', wearingArm: 'left' });
+  const steps = [];
+  for (const [t, ax, ay, az, gx, gy, gz] of real.samples) {
+    for (const m of detector.update({ t, ax, ay, az, gx, gy, gz })) steps.push([Math.round(t / 100) / 10, m.direction]);
+  }
+  // Eight wrist turns in the first 12 seconds. The arm raised twice (14 s, 17 s) and swung four times (50 to 68 s): nothing.
+  assert.deepEqual(steps.map(([, d]) => d), [1, -1, 1, -1, 1, -1, 1, -1]);
+  assert.ok(steps.every(([t]) => t < 12), JSON.stringify(steps));
 });

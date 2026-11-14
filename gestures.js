@@ -21,11 +21,26 @@ export const CONFIG = {
   upSmoothing: 0.03,        // the same for "which way is up", slower so a swipe does not disturb it
 
   // Which gestures the arm makes
-  gestures: 'tilt',         // 'tilt': tip the wrist to the right or left and come back, like a joystick: one
-                            //   step each. Read from gravity, so it is an angle that does not drift.
+  gestures: 'turn',         // 'turn': every quick turn of the wrist is one step in its direction, right
+                            //   (clockwise) or left. A slow turn is free: that is how to get back and step
+                            //   the same way again. Read from the gyro, about the forearm only.
+                            // 'tilt': tip the wrist to the right or left and come back, like a joystick: one
+                            //   step each, and coming back never counts. Read from gravity.
                             // 'leftRight': one motion read from turning speed. Sweeping the forearm or turning
                             //   the wrist, right (or clockwise) or left: each is one step, +1 or -1.
                             // 'twistAndSwipe': two motions told apart. Twist sends adjusts, swipe sends steps.
+
+  // Turn: a quick turn of the wrist about the forearm. The numbers come from a recording of
+  // the real band: deliberate turns were 70 to 200 degrees, peaking at 360 to 1000 deg/s;
+  // wobbles and creeping stayed under 40 degrees or 170 deg/s.
+  turnStartDps: 60,         // the wrist turning this fast starts a turn ...
+  turnEndDps: 30,           // ... and slower than this ...
+  turnEndMs: 80,            // ... for this long ends it (so does turning back the other way)
+  turnOutDegrees: 45,       // a turn must go this far outward (the easy way, see wearingArm) ...
+  turnInDegrees: 40,        // ... or this far inward
+  turnMinDps: 250,          // and peak this fast: slower is moving the wrist back, not a gesture
+  turnArmShare: 0.5,        // the arm itself may turn at most this share of what the wrist turned.
+                            //   More is the arm moving around, not a turn of the wrist
 
   // Tilt: how far the wrist is tipped from where it was resting, measured against gravity
   wearingArm: 'left',       // 'left' or 'right': the arm the band is on. A forearm turns outward (thumb away
@@ -336,6 +351,10 @@ export function clutchAngle(gravity, calibration, config = CONFIG) {
  * times as much as the other wins, and the rest of the movement belongs to that gesture.
  * With no clear winner, nothing is sent.
  *
+ * With config.gestures 'turn' (the default) only the wrist's turning about the forearm is
+ * looked at. A turn runs from the first quick turning until it stops or turns back. Far
+ * enough, fast enough, and with the arm itself mostly still, it is one step in its direction.
+ *
  * With config.gestures 'tilt' none of that runs. The wrist's angle about the forearm is read
  * from gravity. Where it rests is the centre; tipped far enough from there is one step, and
  * it has to come back near the centre before the next. Coming back never sends anything.
@@ -381,6 +400,59 @@ export function createDetector(calibration, config = CONFIG) {
   let centreSum = 0, centreCount = 0, centreFirst = 0;   // rolls seen while the centre is being found
   let centreLift = 0;          // forearm elevation when the centre was set
   let armSince = null;         // the arm itself has been turning since this time
+
+  // Turn
+  let turn = null;             // the wrist turn in progress: { side, angle, arm, peak, fired, left }
+  let turnQuiet = null;        // the wrist has turned slower than turnEndDps since this time
+
+  /** A turn is over: if it was not a step, say why (small wobbles say nothing). */
+  function endTurn() {
+    const far = Math.abs(turn.angle);
+    if (!turn.fired && far >= 20) {
+      const limit = turn.side > 0 ? state.limitRight : state.limitLeft;
+      const why = turn.left ? 'the arm was not level'
+        : turn.arm > config.turnArmShare * far ? `the arm was moving: it turned ${Math.round(turn.arm)} degrees, the wrist ${Math.round(far)}`
+          : far < limit ? `too small: ${Math.round(far)} of ${limit} degrees`
+            : turn.peak < config.turnMinDps ? `too slow: peak ${Math.round(turn.peak)} of ${config.turnMinDps} deg/s (a slow turn is free)`
+              : 'too soon after the last one';
+      state.movement = { swipe: turn.arm, twist: turn.angle, winner: 'turn', result: why, counted: false };
+      state.missed = why;
+    }
+    turn = null; turnQuiet = null;
+  }
+
+  /** One sample of the turn gesture. `armRate` is the turning about anything but the forearm, deg/s. */
+  function turnUpdate(s, twistRate, armRate, dt, out) {
+    const outIsRight = config.wearingArm !== 'left';                  // outward is clockwise on the right arm
+    state.limitRight = outIsRight ? config.turnOutDegrees : config.turnInDegrees;
+    state.limitLeft = outIsRight ? config.turnInDegrees : config.turnOutDegrees;
+    state.calm = state.clutch; state.why = state.clutch ? null : 'arm not level';
+    if (turn && Math.sign(twistRate) === -turn.side && Math.abs(twistRate) > config.turnStartDps) endTurn();   // turned back
+    if (!turn && state.clutch && Math.abs(twistRate) > config.turnStartDps) {
+      turn = { side: Math.sign(twistRate), angle: 0, arm: 0, peak: 0, fired: false, left: false };
+    }
+    if (turn) {
+      turn.angle += twistRate * dt;
+      turn.arm += armRate * dt;
+      turn.peak = Math.max(turn.peak, Math.abs(twistRate));
+      if (!state.clutch) turn.left = true;
+      const far = Math.abs(turn.angle), limit = turn.side > 0 ? state.limitRight : state.limitLeft;
+      if (!turn.fired && !turn.left && far >= limit && turn.peak >= config.turnMinDps
+        && turn.arm <= config.turnArmShare * far && s.t >= cooldownUntil) {
+        turn.fired = true;
+        out.push({ type: 'step', direction: turn.side });
+        cooldownUntil = s.t + config.cooldownMs;
+        state.movement = { swipe: turn.arm, twist: turn.angle, winner: 'turn', result: turn.side > 0 ? 'Right' : 'Left', counted: true };
+        state.missed = null;
+      }
+      if (Math.abs(twistRate) < config.turnEndDps) {
+        if (turnQuiet === null) turnQuiet = s.t;
+        if (s.t - turnQuiet >= config.turnEndMs) endTurn();
+      } else turnQuiet = null;
+    }
+    state.roll = turn ? turn.angle : 0;
+    state.moving = turn !== null;
+  }
 
   /**
    * How far a tip must go, right and left, for the centre as it is now. Outward is the easy
@@ -578,6 +650,13 @@ export function createDetector(calibration, config = CONFIG) {
       toggleAt = null;
       out.push({ type: 'toggle' });
       cooldownUntil = s.t + config.cooldownMs;
+    }
+
+    if (config.gestures === 'turn') {
+      move = null;
+      turnUpdate(s, twistRate, Math.sqrt(Math.max(0, turning * turning - twistRate * twistRate)), dt, out);
+      state.twisting = false; state.twistRate = twistRate; state.swipeRate = swipeRate;
+      return out;
     }
 
     if (config.gestures === 'tilt') {

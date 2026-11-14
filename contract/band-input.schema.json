@@ -6,17 +6,12 @@
     {
       "type": "object",
       "properties": {
-        "type": { "const": "adjust" },
-        "delta": { "type": "number", "minimum": -1, "maximum": 1 }
-      },
-      "required": ["type", "delta"],
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "properties": {
         "type": { "const": "step" },
-        "direction": { "type": "integer", "enum": [-1, 1] }
+        "direction": {
+          "type": "integer",
+          "enum": [-1, 1],
+          "description": "Swipe direction: -1 for left, 1 for right. One event per swipe."
+        }
       },
       "required": ["type", "direction"],
       "additionalProperties": false

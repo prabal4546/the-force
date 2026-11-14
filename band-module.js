@@ -201,9 +201,9 @@ function loadCalibration() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     // Saves from before the swipe (version 3) do not fit: calibrate again.
-    // The tilt needs no swipe axis; the other modes do.
+    // The turn and the tilt need no swipe axis; the other modes do.
     const fits = saved && saved.version === 3 && Array.isArray(saved.twistVec) && Array.isArray(saved.gravity)
-      && (CONFIG.gestures === 'tilt' || Array.isArray(saved.swipeVec));
+      && (CONFIG.gestures === 'tilt' || CONFIG.gestures === 'turn' || Array.isArray(saved.swipeVec));
     return fits ? saved : null;
   } catch { return null; }                         // no storage (tests) or a broken entry
 }

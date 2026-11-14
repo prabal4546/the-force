@@ -344,18 +344,23 @@
 
   // ---- Gestures: dial, tiles, meters, message log ----
   const MODE = remote.CONFIG.gestures;               // 'tilt', 'leftRight' or 'twistAndSwipe'
-  const TILT = MODE === 'tilt';
+  const TURN = MODE === 'turn';
+  const TILT = MODE === 'tilt' || TURN;              // the wrist gestures: both read the wrist about the forearm only
   const ONE = MODE !== 'twistAndSwipe';              // one gesture, left and right, instead of twist and swipe
   if (ONE) {
     document.body.classList.add('one', TILT ? 'tilt' : 'sweep');
     $('stepIcon').textContent = '↔️';
     $('stepName').textContent = 'Left / Right';
     $('swipeLabel').textContent = 'Sweep strength (line = how hard a sweep must be)';
-    $('howTo').innerHTML = TILT
-      ? 'Hold your forearm level and still for a moment: that is the centre. Then, <b>keeping the arm itself still, tip your wrist right or left, like turning a key, and come back</b>. '
-        + 'Each tip past the line is one step; coming back sends nothing. Tap or double-tap the band for the other two.'
-      : 'Hold your forearm level and still, then move it <b>right or left</b>: sweep the forearm sideways, pivoting at the elbow, '
-        + 'or turn your wrist (clockwise is right). Each one is a step; coming back is free. Tap or double-tap the band for the other two.';
+    $('howTo').innerHTML = TURN
+      ? 'Hold your forearm level. <b>Turn your wrist quickly to the right or to the left</b>, like turning a key: each quick turn is one step in its direction. '
+        + 'A slow turn does not count, so to step the same way twice turn quickly, come back slowly, and turn quickly again. '
+        + 'Keep the arm itself still while you turn. Tap or double-tap the band for the other two.'
+      : TILT
+        ? 'Hold your forearm level and still for a moment: that is the centre. Then, <b>keeping the arm itself still, tip your wrist right or left, like turning a key, and come back</b>. '
+          + 'Each tip past the line is one step; coming back sends nothing. Tap or double-tap the band for the other two.'
+        : 'Hold your forearm level and still, then move it <b>right or left</b>: sweep the forearm sideways, pivoting at the elbow, '
+          + 'or turn your wrist (clockwise is right). Each one is a step; coming back is free. Tap or double-tap the band for the other two.';
   }
   let dial = 0.5;                                    // what the adjust messages add up to, 0..1
   let swipePeak = 0;                                 // a fading peak, so a short swipe stays visible
@@ -403,7 +408,7 @@
     const roll = state.roll === null ? 0 : Math.max(-120, Math.min(120, state.roll));
     $('rollBar').style.left = (roll >= 0 ? 50 : 50 + roll / 2.4) + '%';
     $('rollBar').style.width = Math.abs(roll) / 2.4 + '%';
-    $('rollText').textContent = state.roll === null ? '--' : state.roll.toFixed(0) + ' deg from rest'
+    $('rollText').textContent = state.roll === null ? '--' : state.roll.toFixed(0) + (TURN ? ' deg this turn' : ' deg from rest')
       + (TILT && state.limitLeft ? '  (a step at ' + Math.round(state.limitLeft) + ' left, ' + Math.round(state.limitRight) + ' right)' : '');
     if (TILT) {                                      // the two lines a tip has to pass
       const right = state.limitRight || remote.CONFIG.tiltOutDegrees, left = state.limitLeft || remote.CONFIG.tiltOutDegrees;
@@ -426,7 +431,8 @@
     $('tapCheck').textContent = (t.doubleTaps === 0 ? 'double-tap a few times to check' : t.withTapBefore + ' of ' + t.doubleTaps + ' double-taps')
       + (state.tapDelay ? '  (tap waits ' + remote.CONFIG.tapDelayMs + ' ms)' : '  (tap fires at once)');
     const m = state.movement;                        // how the last movement was judged
-    $('movement').textContent = m && m.winner === 'tilt' ? m.result + '  (' + m.twist.toFixed(0) + ' deg from the centre)' : m ? m.result + '  (swipe ' + m.swipe.toFixed(1) + ' deg, twist ' + m.twist.toFixed(1) + ' deg in the first '
+    $('movement').textContent = m && m.winner === 'turn' ? m.result + '  (wrist ' + m.twist.toFixed(0) + ' deg, arm ' + m.swipe.toFixed(0) + ' deg)'
+      : m && m.winner === 'tilt' ? m.result + '  (' + m.twist.toFixed(0) + ' deg from the centre)' : m ? m.result + '  (swipe ' + m.swipe.toFixed(1) + ' deg, twist ' + m.twist.toFixed(1) + ' deg in the first '
       + remote.CONFIG.classifyMs + ' ms: ' + (m.winner === 'none' ? 'no winner' : m.winner + ' won') + ')' : '--';
     $('whyNot').textContent = state.missed ? 'Last movement not counted: ' + state.missed : '';
 
@@ -531,6 +537,14 @@
 
   // ---- Fine tuning: sliders over the thresholds in CONFIG, kept in this browser ----
   const TUNING = [                                   // `modes`: which gesture modes a slider matters in (none = all)
+    { key: 'turnOutDegrees', name: 'Turn outward: how far', unit: 'deg', min: 15, max: 120, step: 1, modes: ['turn'],
+      hint: 'Outward is the easy way: thumb away from your body, palm coming up. Left on the left arm, right on the right arm. Lower is easier; higher gives fewer accidental steps.' },
+    { key: 'turnInDegrees', name: 'Turn inward: how far', unit: 'deg', min: 15, max: 120, step: 1, modes: ['turn'],
+      hint: 'Inward is the harder way, so a little less is asked.' },
+    { key: 'turnMinDps', name: 'Turn: how quick', unit: 'deg/s', min: 80, max: 600, step: 10, modes: ['turn'],
+      hint: 'A turn must peak this fast to count; slower is free, for coming back. Lower if quick turns are missed; raise if coming back counts as a step.' },
+    { key: 'turnArmShare', name: 'Arm movement allowed', unit: 'x', min: 0.1, max: 1.5, step: 0.05, modes: ['turn'],
+      hint: 'How much the arm itself may turn, as a share of what the wrist turned. Lower removes more ghost steps while you move around; raise if real turns are refused as "the arm was moving".' },
     { key: 'tiltOutDegrees', name: 'Tip outward: how far', unit: 'deg', min: 10, max: 70, step: 1, modes: ['tilt'],
       hint: 'Outward is the easy way: thumb away from your body, palm coming up. Left on the left arm, right on the right arm.' },
     { key: 'tiltInDegrees', name: 'Tip inward: how far', unit: 'deg', min: 8, max: 70, step: 1, modes: ['tilt'],
@@ -551,9 +565,9 @@
       hint: 'A wrist that rests this long somewhere new makes that the centre. Raise it if steps go missing after a pause.' },
     { key: 'moveStartDps', name: 'Movement start', unit: 'deg/s', min: 15, max: 150, step: 5, modes: ['leftRight', 'twistAndSwipe'],
       hint: 'How fast the forearm must turn before anything is looked at. Higher ignores more small movement.' },
-    { key: 'settleMs', name: 'Still before a gesture', unit: 'ms', min: 0, max: 600, step: 10,
+    { key: 'settleMs', name: 'Still before a gesture', unit: 'ms', min: 0, max: 600, step: 10, modes: ['tilt', 'leftRight', 'twistAndSwipe'],
       hint: 'A gesture only starts from an arm held still this long. Higher removes more ghost gestures.' },
-    { key: 'settleDps', name: 'What counts as still', unit: 'deg/s', min: 20, max: 150, step: 5,
+    { key: 'settleDps', name: 'What counts as still', unit: 'deg/s', min: 20, max: 150, step: 5, modes: ['tilt', 'leftRight', 'twistAndSwipe'],
       hint: 'The band turning slower than this, in any direction. Raise it if "Hold still a moment" shows while your arm is steady.' },
     { key: 'returnMs', name: 'Coming back is free for', unit: 'ms', min: 0, max: 2500, step: 50, modes: ['leftRight', 'twistAndSwipe'],
       hint: 'Moving back the other way this soon after a counted one is not a new gesture. Higher removes ghost steps in the opposite direction.' },
@@ -786,7 +800,8 @@
       const rows = cal.swipeVec ? [
         ['Twist axis', cal.twistAxis], ['Swipe axis', cal.swipeAxis],
         ['Your swipe', Math.round(cal.swipePeak) + ' deg/s (a swipe must reach ' + Math.round(remote.getState().swipeMin) + ')'],
-      ] : [['Wrist axis', cal.twistAxis], ['A step at', remote.CONFIG.tiltOutDegrees + ' degrees outward, ' + remote.CONFIG.tiltInDegrees + ' inward of where your wrist rests']];
+      ] : TURN ? [['Wrist axis', cal.twistAxis], ['A step is', 'a quick turn of ' + remote.CONFIG.turnOutDegrees + ' degrees outward or ' + remote.CONFIG.turnInDegrees + ' inward']]
+        : [['Wrist axis', cal.twistAxis], ['A step at', remote.CONFIG.tiltOutDegrees + ' degrees outward, ' + remote.CONFIG.tiltInDegrees + ' inward of where your wrist rests']];
       $('wizSummary').replaceChildren(...rows.map(([name, value]) => {
         const row = document.createElement('tr');
         row.innerHTML = '<td class="muted"></td><td></td>';
@@ -797,7 +812,7 @@
       showStep(POSES.length, true);
       $('wizIcon').textContent = '✅';
       $('wizTitle').textContent = 'Calibrated';
-      $('wizText').textContent = TILT ? 'Saved in this browser. Hold your arm level and still, then tip your wrist right and come back, left and come back, and tap.' : ONE ? 'Saved in this browser. Hold your arm level and still, then move it right, left, and tap.' : 'Saved in this browser. Hold your arm level and try a twist, a swipe and a tap.';
+      $('wizText').textContent = TURN ? 'Saved in this browser. Hold your arm level, then turn your wrist quickly right, quickly left, and tap.' : TILT ? 'Saved in this browser. Hold your arm level and still, then tip your wrist right and come back, left and come back, and tap.' : ONE ? 'Saved in this browser. Hold your arm level and still, then move it right, left, and tap.' : 'Saved in this browser. Hold your arm level and try a twist, a swipe and a tap.';
       $('wizSummary').style.display = 'table';
       say('Calibrated.');
     } catch (e) {
