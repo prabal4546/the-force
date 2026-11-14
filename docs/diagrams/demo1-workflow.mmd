@@ -1,0 +1,17 @@
+flowchart LR
+  B["CURRENT<br/>Remote band adapter<br/>Live link unverified"] -->|"Local /hub proxy"| E["POST /v1/band/events<br/>step / toggle / select"]
+  E --> A["202 accepted<br/>In-memory event buffer"]
+  A -. "Not connected" .-> X["Window execution<br/>No dispatcher yet"]
+
+  S["PROPOSED DEMO 1<br/>Swipe left / right"] --> G["step.direction<br/>-1 left / +1 right"]
+  G --> D["Demo 1 dispatcher<br/>Map gesture to action"]
+  D --> W["Find focused window<br/>Choose adjacent display"]
+  W --> M["Real macOS window move<br/>Accessibility permission"]
+  M --> R["Verify new position<br/>Completed or failed"]
+
+  classDef ready fill:#e7f4ee,stroke:#26805b,color:#173b2b,stroke-width:2px
+  classDef pending fill:#fff3df,stroke:#bf7a16,color:#563b14,stroke-width:2px
+  classDef missing fill:#fbe9e7,stroke:#bd5145,color:#642b25,stroke-width:2px
+  class E,A ready
+  class B,S,G,D,W,R pending
+  class X,M missing
