@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 from websockets.asyncio.server import ServerConnection, serve
 
@@ -50,6 +49,7 @@ class BodyOSServer:
     async def _dispatch(self, raw: Union[str, bytes]) -> Optional[WireMessage]:
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
+        request: Optional[WireMessage] = None
         try:
             request = WireMessage.parse(raw)
             payload = request.payload or {}
@@ -82,6 +82,13 @@ class BodyOSServer:
 
             raise ProtocolError(f"Unsupported message type: {request.type}")
         except (ProtocolError, WindowControlError) as exc:
+            if request is not None:
+                return reply(
+                    request,
+                    "error",
+                    code="request-failed",
+                    message=str(exc),
+                )
             return WireMessage.create("error", code="request-failed", message=str(exc))
 
     async def _publish_gestures(self) -> None:

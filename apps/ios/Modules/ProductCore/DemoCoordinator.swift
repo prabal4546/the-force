@@ -46,6 +46,10 @@ struct DemoCoordinator {
             state = .tracking(person)
             return [.setVexoLED(.green)]
 
+        case (_, .failure(let message)):
+            state = .failed(message)
+            return []
+
         case (_, .gesture):
             return []
 

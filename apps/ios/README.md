@@ -1,6 +1,6 @@
 # iPhone app
 
-The iPhone app is the product coordinator. It talks directly to Mentra Live,
+The Force iPhone app is the product coordinator. It talks directly to Mentra Live,
 controls Flow 2 Pro through DockKit, and exchanges commands with the Mac runtime
 over one WebSocket.
 
@@ -19,6 +19,10 @@ open BodyOS.xcodeproj
 Select your development team and run on a physical iPhone. The checked-in app
 starts as a fully mocked vertical slice; real adapters should preserve the same
 protocols.
+
+Start the Mac runtime with `make mac-sim`. In the app, enter `127.0.0.1` for
+the simulator or the Mac's LAN IP for a physical iPhone, then tap **Connect
+Mac**. The connection retries automatically if the runtime restarts.
 
 ## Module boundaries
 

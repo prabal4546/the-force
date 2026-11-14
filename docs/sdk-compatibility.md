@@ -15,7 +15,8 @@ Sources checked:
 - The official [Mentra Bluetooth camera documentation](https://docs.mentraglass.com/bluetooth-sdk/camera-streaming),
   checked on 2026-11-14. This camera path is for supported Mentra Live hardware.
 - The teammate's `adjust`, `step`, `toggle`, `select`, `command`, and `say` contract.
-- Remote `origin/main` commit `1379069`, which adds `TARGET.md`.
+- Remote `origin/main` commits `1379069` (`TARGET.md`) and `00d684b`
+  (iPhone coordinator and Mac bridge integration), merged into this API branch.
 
 ## Band: native data versus adapter output
 
@@ -98,7 +99,7 @@ still require the session header when configured; a bare URL is not a public lin
 
 ## Relationship to the remote target specification
 
-The fetched commit `1379069` adds a fuller `LOOK -> GRAB -> LOOK -> THROW` profile:
+Commit `1379069` adds a fuller `LOOK -> GRAB -> LOOK -> THROW` profile:
 iPhone coordinator, `gesture.detected` carrying `grab`/`throw`, QR target selection,
 Mac WebSocket on port 8765, and an iPhone photo receiver on port 8787.
 
@@ -110,8 +111,9 @@ the selected device; target recognition is a later consumer.
 
 The current HTTP intake runs on the Mac on port 8000. It preserves the old
 WebSocket code and label-based `/v1/gestures` endpoint, but does not bridge either
-one to the new band input buffer. The remote specification was inspected, not
-silently merged or treated as implemented. Demo 2 remains outside this change.
+one to the new band input buffer. The branch includes the upstream target and
+iPhone/Mac bridge integration through `00d684b`, without claiming that the new
+HTTP inputs are wired into that flow. Demo 2 remains outside the API change.
 
 ## Verification and limits
 
