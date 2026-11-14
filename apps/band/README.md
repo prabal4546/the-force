@@ -134,8 +134,10 @@ The band's microphone turns on at connect (solid blue light) and its sound goes 
 Deepgram the whole time (`speech.js`, copied from the kit, with `keyterm=Vexo`). Gestures
 keep working meanwhile.
 
-- Say **"Vexo"** and then what you want. When Deepgram marks the sentence finished, one
-  `{ "type": "command", "text": "..." }` is sent. Nothing within 3 seconds sends nothing.
+- Say **"Vexo"** and then what you want. Everything said until a pause of 0.9 seconds
+  (`wakeEndMs`) is one `{ "type": "command", "text": "..." }`. Deepgram marks a sentence
+  finished at every short pause, so its mark alone would cut a command in two. Nothing
+  within 3 seconds of the wake word sends nothing.
   The spellings that count as the wake word are `wakeWords` in `CONFIG` (`wake.js` has the logic).
 - Or hold the **spacebar** and speak: everything said while it is held is one command.
 - **Mute** turns the microphone off.
