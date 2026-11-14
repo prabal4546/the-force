@@ -13,10 +13,12 @@ export const CONFIG = {
   swingSignDps: 60,         // first swing above this decides which way is "clockwise" / "right"
 
   // Clutch: twist and flick only count near the level pose
-  clutchDegrees: 35,
+  clutchDegrees: 50,
   clutchIgnoresTwist: true, // true: compare forearm elevation only, so turning the wrist does not
                             //       open the clutch. false: plain angle between gravity directions.
   gravitySmoothing: 0.1,    // 0..1, share of each new sample in the gravity estimate
+  upSmoothing: 0.03,        // the same for "which way is up", slower so a flick does not disturb it
+  sidewaysShare: 0.5,       // a calibrated flick must be at least this much sideways (not up and down)
 
   // Wrist angle (roll about the forearm): the gyro for speed, gravity to stop it drifting
   rollBlend: 0.02,          // share of the gravity reading pulled into the angle on each sample
@@ -31,7 +33,8 @@ export const CONFIG = {
   twistEndMs: 300,          // ... or after this long without turning
   returnMs: 1500,           // after a twist, this long to turn back for free
 
-  // Flick: a short spike on the flick axis that is stronger than the twist axis
+  // Flick: a short sideways spike (turning about the vertical, whichever way the wrist is
+  // rolled) that is stronger than the twist axis
   flickMinDps: 250,         // the spike must exceed this ...
   flickPeakShare: 0.5,      // ... or this share of the wearer's calibrated flick, if that is less
   flickFloorDps: 150,       // but never less than this
@@ -146,6 +149,16 @@ function energyAbout(samples, axis, bias = NO_BIAS, without = null) {
   return samples.length ? Math.sqrt(sum / samples.length) : 0;
 }
 
+/**
+ * The vertical, as the band sees it, with any part along the forearm taken out: the axis a
+ * sideways flick turns about. It follows gravity, so it is the same motion in the room
+ * whether the palm faces down, the thumb is up, or anything between.
+ */
+export function sidewaysAxis(gravity, twistVec) {
+  const along = dot(gravity, twistVec);
+  return unit(gravity.map((v, i) => v - along * twistVec[i]));
+}
+
 /** Point the axis so that the first clear swing of the recording is positive. */
 function firstSwingPositive(samples, axis, bias, threshold) {
   const first = samples.find((s) => Math.abs(rateAbout(s, axis, bias)) >= threshold);
@@ -171,8 +184,13 @@ export function checkPose(kind, samples, poses = {}, config = CONFIG) {
   }
   if (kind === 'flick' && poses.twist) {
     const twistAxis = mainAxis(poses.twist);
-    if (energyAbout(samples, mainAxis(samples, NO_BIAS, twistAxis), NO_BIAS, twistAxis) < config.minPoseDps) {
+    const all = energyAbout(samples, mainAxis(samples, NO_BIAS, twistAxis), NO_BIAS, twistAxis);
+    if (all < config.minPoseDps) {
       return 'That looked like the twist again. Keep your forearm still and wave your hand left and right.';
+    }
+    const sideways = energyAbout(samples, sidewaysAxis(meanGravity(samples), twistAxis));
+    if (sideways < config.minPoseDps || sideways < config.sidewaysShare * all) {
+      return 'Your hand moved up and down more than sideways. Wave it left and right, level with the floor.';
     }
   }
   return null;
@@ -202,11 +220,19 @@ export function computeCalibration(level, twist, flick, config = CONFIG) {
   if (energyAbout(flick, flickVec, bias) < config.minPoseDps) {
     throw new Error('The flick pose hardly moved. Flick your hand side to side for the whole 2 seconds.');
   }
-  flickVec = firstSwingPositive(flick, flickVec, bias, config.swingSignDps);
+  // A flick is sideways in the room: turning about the vertical. Which sign is "right" comes
+  // from the first swing of the recording.
+  const side = sidewaysAxis(meanGravity(flick), twistVec);
+  const sideways = energyAbout(flick, side, bias);
+  if (sideways < config.minPoseDps || sideways < config.sidewaysShare * energyAbout(flick, flickVec, bias)) {
+    throw new Error('The flick went up and down more than sideways. Wave your hand left and right, level with the floor.');
+  }
+  const first = flick.find((s) => Math.abs(rateAbout(s, side, bias)) >= config.swingSignDps);
+  const flickSign = first && rateAbout(first, side, bias) < 0 ? -1 : 1;
 
-  const calibration = { gravity, bias, twistVec, flickVec, twistAxis: letter(twistVec), flickAxis: letter(flickVec) };
+  const calibration = { gravity, bias, twistVec, flickVec, flickSign, twistAxis: letter(twistVec), flickAxis: letter(flickVec) };
   calibration.rollSign = rollDirection(twist, calibration);
-  calibration.flickPeak = percentile(flick.map((s) => Math.abs(rateAbout(s, flickVec, bias))), 0.95);
+  calibration.flickPeak = percentile(flick.map((s) => Math.abs(rateAbout(s, side, bias))), 0.95);
   return calibration;
 }
 
@@ -278,6 +304,7 @@ export function createDetector(calibration, config = CONFIG) {
   const flickMin = flickThreshold(calibration, config);
   const cw = calibration.rollSign || 1;            // turns the tracked angle clockwise-positive
   let gravity = null;          // smoothed gravity estimate, for the clutch
+  let up = null;               // a slower one: which way is up, for the sideways (flick) axis
   let roll = null;             // wrist angle in gravityRoll's direction, degrees
   let zero = 0;                // the resting angle twists are measured from (clockwise-positive)
   let stillSince = null;
@@ -313,10 +340,11 @@ export function createDetector(calibration, config = CONFIG) {
     const dt = lastT === null ? 0 : Math.max(0, Math.min(0.05, (s.t - lastT) / 1000));
     lastT = s.t;
     const accel = [s.ax, s.ay, s.az];
-    const twistRate = rateAbout(s, calibration.twistVec, bias);   // clockwise-positive
-    const flickRate = rateAbout(s, calibration.flickVec, bias);   // right-positive
-
     gravity = gravity === null ? accel : gravity.map((g, i) => g + config.gravitySmoothing * (accel[i] - g));
+    up = up === null ? accel : up.map((g, i) => g + config.upSmoothing * (accel[i] - g));
+    const twistRate = rateAbout(s, calibration.twistVec, bias);   // clockwise-positive
+    // Sideways turning, right-positive: about the vertical, so it does not matter how the wrist is rolled.
+    const flickRate = rateAbout(s, sidewaysAxis(up, calibration.twistVec), bias) * (calibration.flickSign || 1);
     state.angle = clutchAngle(gravity, calibration, config);
     state.clutch = state.angle <= config.clutchDegrees;
 

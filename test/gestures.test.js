@@ -48,14 +48,16 @@ test('calibration finds gravity, the axes, the gyro bias and the flick strength'
   assert.equal(CAL.flickAxis, 'gz');
   assert.ok(angleBetween(CAL.gravity, [0, 0, 1]) < 1);
   assert.ok(CAL.twistVec[0] > 0.99, 'twist direction is +x: clockwise first');
-  assert.ok(CAL.flickVec[2] > 0.99, 'flick direction is +z: right first');
+  assert.ok(Math.abs(CAL.flickVec[2]) > 0.99, 'the flick pose turned about z');
+  assert.equal(CAL.flickSign, 1);
   assert.ok(Math.abs(CAL.bias.gx) < 1);
   assert.ok(CAL.flickPeak > 450 && CAL.flickPeak <= 500);
 });
 
-test('calibration takes the strongest remaining axis for flick, even when twist leaks into it', () => {
-  const pose = wrist(0, 2000, swing(40), (s) => ({ gy: 250 * Math.sin(9 * s), gz: 60 * Math.sin(9 * s) }));
-  assert.equal(computeCalibration(hold(0, 2000), wrist(0, 2000, swing(40)), pose).flickAxis, 'gy');
+test('calibration refuses a flick that goes up and down instead of sideways', () => {
+  const upDown = wrist(0, 2000, () => 0, (s) => ({ gy: 300 * Math.sin(9 * s) }));       // level arm, turning about y
+  assert.throws(() => computeCalibration(hold(0, 2000), wrist(0, 2000, swing(40)), upDown), /up and down/);
+  assert.match(checkPose('flick', upDown, { level: hold(0, 2000), twist: wrist(0, 2000, swing(40)) }), /up and down/);
 });
 
 test('calibration refuses a pose that did not move', () => {
@@ -242,4 +244,34 @@ test('a twist that is not counted says why', () => {
   const noisy = wrist(500, 500, (s) => 100 * s, () => ({ gz: 200 }));          // turning with more flick than twist in it
   run([...hold(0, 500), ...noisy, ...hold(1000, 300, 50)], detector);
   assert.equal(detector.state.missedTwist, 'the flick axis was stronger');
+});
+
+/** A sideways flick (turning about the vertical) with the wrist held rolled by `roll` degrees. */
+function flickAt(roll, t0, ms, dps) {
+  return wrist(t0, ms, () => roll, () => ({ gy: dps * Math.sin(roll * RAD), gz: dps * Math.cos(roll * RAD) }));
+}
+
+test('a sideways flick counts however the wrist is rolled: palm down, thumb up, in between', () => {
+  for (const roll of [0, 45, 90, -60]) {
+    const right = run([...hold(0, 600, roll), ...flickAt(roll, 600, 100, 400), ...hold(700, 500, roll)]);
+    assert.deepEqual(right, [{ type: 'step', direction: 1 }], 'right at roll ' + roll);
+    const left = run([...hold(0, 600, roll), ...flickAt(roll, 600, 100, -400), ...hold(700, 500, roll)]);
+    assert.deepEqual(left, [{ type: 'step', direction: -1 }], 'left at roll ' + roll);
+  }
+});
+
+test('an up-and-down flick is not a step', () => {
+  const upDown = wrist(600, 100, () => 0, () => ({ gy: 400 }));
+  assert.deepEqual(run([...hold(0, 600), ...upDown, ...hold(700, 500)]), []);
+});
+
+test('gestures work with the forearm tilted 40 degrees up or down, and stop near vertical', () => {
+  const tilt = (deg) => ({ ax: Math.sin(deg * RAD), az: Math.cos(deg * RAD) });
+  for (const deg of [40, -40]) {
+    const pose = tilt(deg);
+    const out = run([...wrist(0, 600, () => 0, () => pose), ...wrist(600, 100, () => 0, () => ({ ...pose, gy: 0, gz: 400 * Math.cos(deg * RAD), gx: 400 * Math.sin(deg * RAD) * 0 })), ...wrist(700, 500, () => 0, () => pose)]);
+    assert.equal(out.length, 1, 'flick at tilt ' + deg);
+  }
+  const steep = tilt(70);
+  assert.deepEqual(run([...wrist(0, 600, () => 0, () => steep), ...wrist(600, 100, () => 0, () => ({ ...steep, gz: 400 })), ...wrist(700, 500, () => 0, () => steep)]), []);
 });

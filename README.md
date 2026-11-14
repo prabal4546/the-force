@@ -59,14 +59,18 @@ starting to the right). Each step is checked and can be retried on its own. The 
 | Tap | `{ "type": "toggle" }` |
 | Double-tap | `{ "type": "select" }` |
 
-Twist and flick only count while the forearm is within 35 degrees of the level pose.
+Twist and flick only count while the forearm is within 50 degrees of level (`clutchDegrees`), so a hanging arm fires nothing.
 
 How the detection works (`gestures.js`):
 
 - It tracks the real wrist angle: the gyro for speed, gravity to stop it drifting.
 - A twist is measured from where the wrist was resting. Turning away sends adjusts; turning
   back sends nothing. To go further, turn, come back, and turn again.
-- Twist or flick is decided by which axis is stronger at that moment.
+- The twist axis is the direction the forearm turns about, found in calibration (the band
+  rarely sits square on the wrist).
+- A flick is a sideways turn in the room: about the vertical, which the band knows from
+  gravity. So it is the same gesture palm down, thumb up or anywhere between.
+- Twist or flick is decided by which of the two is stronger at that moment.
 - The flick threshold drops for a wearer whose calibrated flick is gentle.
 
 ### Voice
