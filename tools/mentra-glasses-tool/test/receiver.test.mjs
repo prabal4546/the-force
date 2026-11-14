@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createReceiver, photoFormat, isMp4, safeId } from '../src/receiver.mjs';
+import { createReceiver, photoFormat, safeId } from '../src/receiver.mjs';
 import { createLiveFeed } from '../src/live.mjs';
 import { demoPicture } from '../src/demo.mjs';
 
@@ -40,23 +40,23 @@ test('a photo upload is saved, answered like Mentra\'s receiver, and served back
   assert.ok(fs.existsSync(path.join(r.store.dir, photo.file)));
 });
 
-test('a video clip becomes a recording the viewer lists', async () => {
+test('a video clip is refused with a reason, and nothing is saved', async () => {
   const root = tmp();
   const r = await createReceiver({ dataDir: root, port: 0, host: '127.0.0.1', publicHost: '127.0.0.1', log: quiet });
-  const { status, body } = await upload(r.port, { field: 'video', data: mp4(), type: 'video/mp4', requestId: 'video-1' });
-  assert.equal(status, 200);
-  assert.ok(body.videoUrl.endsWith('.mp4'));
-  const dirs = fs.readdirSync(path.join(root, 'video'));
-  assert.equal(dirs.length, 1);
-  assert.match(dirs[0], /_video-1$/);
-  assert.deepEqual(fs.readFileSync(path.join(root, 'video', dirs[0], 'recording.mp4')), mp4());
+  for (const clip of [{ field: 'video', type: 'video/mp4' }, { field: 'photo', type: 'video/mp4' }, { field: 'file', type: 'video/quicktime' }]) {
+    const { status, body } = await upload(r.port, { ...clip, data: mp4(), requestId: 'video-1' });
+    assert.equal(status, 415, JSON.stringify(clip));
+    assert.match(body.error, /screenshots/);
+  }
+  assert.equal(r.store.photoCount, 0);
   await r.close();
+  assert.deepEqual(fs.readdirSync(root), [path.basename(r.store.dir)], 'no video folder');
 });
 
 test('fake, empty and wrong-kind files are refused', async () => {
   const r = await createReceiver({ dataDir: tmp(), port: 0, host: '127.0.0.1', log: quiet });
   assert.equal((await upload(r.port, { data: Buffer.from('<script>alert(1)</script>') })).status, 415);
-  assert.equal((await upload(r.port, { field: 'video', data: jpeg(), type: 'video/mp4' })).status, 415);
+  assert.equal((await upload(r.port, { data: mp4(), type: 'image/jpeg' })).status, 415); // an MP4 posing as a photo
   assert.equal((await upload(r.port, { data: Buffer.alloc(0) })).status, 400);
   const notForm = await fetch(`http://127.0.0.1:${r.port}/upload`, { method: 'POST', body: 'x', headers: { 'content-type': 'text/plain' } });
   assert.equal(notForm.status, 415);
@@ -71,10 +71,12 @@ test('fake, empty and wrong-kind files are refused', async () => {
 test('a hostile request id cannot choose where files go', async () => {
   const root = tmp();
   const r = await createReceiver({ dataDir: root, port: 0, host: '127.0.0.1', log: quiet });
-  await upload(r.port, { field: 'video', data: mp4(), type: 'video/mp4', requestId: '../../../etc/passwd' });
-  const dirs = fs.readdirSync(path.join(root, 'video'));
-  assert.match(dirs[0], /_etcpasswd$/);
+  await upload(r.port, { requestId: '../../../etc/passwd' });
   await r.close();
+  assert.deepEqual(fs.readdirSync(root), [path.basename(r.store.dir)]);
+  const photo = fs.readFileSync(path.join(r.store.dir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).find((e) => e.type === 'photo');
+  assert.equal(photo.requestId, 'etcpasswd');
+  assert.match(photo.file, /^photos\/photo_000001_\d+\.jpg$/);
   assert.equal(safeId(''), safeId('') ); // never empty
   assert.match(safeId('///'), /^upload-\d+$/);
 });
@@ -113,8 +115,7 @@ test('format sniffing', () => {
   assert.equal(photoFormat(demoPicture(2)), 'png');
   assert.equal(photoFormat(Buffer.from('RIFF0000WEBPVP8 ')), 'webp');
   assert.equal(photoFormat(Buffer.from('GIF89a........')), null);
-  assert.equal(isMp4(mp4()), true);
-  assert.equal(isMp4(jpeg()), false);
+  assert.equal(photoFormat(mp4()), null);
 });
 
 import httpModule from 'node:http';

@@ -123,8 +123,8 @@ async function main() {
   const server = new GlassesRecorder(cfg, live);
   await server.start();
   console.log(`Listening on port ${cfg.port}. Point your ngrok tunnel here and start the app on the glasses.`);
-  if (cfg.video) console.log(`Video is on. Glasses will push RTMP to ${cfg.rtmpUrl} (run "npm run video" first).`);
-  console.log(cfg.bodyos.url ? `Also keeping photos and videos in the BodyOS API at ${cfg.bodyos.url} (device ${cfg.bodyos.deviceId}).` : 'BodyOS API is off: set BODYOS_API_URL to keep photos and videos there too.');
+  if (cfg.stream) console.log(`Fast screenshots: the glasses will stream to ${cfg.rtmpUrl}. Run "npm run frames" too: it turns the stream into screenshots.`);
+  console.log(cfg.bodyos.url ? `Sending screenshots to the device API at ${cfg.bodyos.url} (device ${cfg.bodyos.deviceId}).` : 'Device API is off: set BODYOS_API_URL to send screenshots to the codex/api API.');
   if (!cfg.ingestToken) console.log('Raw IMU ingest (/imu) is off: set INGEST_TOKEN to enable it.');
   for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => void server.stop().then(() => process.exit(0)));
 }

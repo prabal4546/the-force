@@ -43,28 +43,29 @@ export function attachSession(session, store, cfg, log = console, { beforeClose 
   off.push(
     ev.onButtonPress((e) => {
       store.event('button', { buttonId: e.buttonId, pressType: e.pressType });
-      if (e.pressType === 'short' && !cfg.video) void takePhoto('button');
+      if (e.pressType === 'short' && !cfg.stream) void takePhoto('button');
     }),
   );
   off.push(ev.onTouchEvent((e) => store.event('touch', { gesture: e.gesture_name })));
   off.push(ev.onGlassesBattery((e) => store.event('battery', { level: e.level, charging: e.charging })));
 
-  if (cfg.video) {
+  // The live stream `npm run frames` cuts screenshots from.
+  if (cfg.stream) {
     off.push(
       session.camera.onStreamStatus((s) => {
         store.event('stream_status', { status: s.status, stats: s.stats ?? null, error: s.errorDetails ?? null });
-        log.log(`video: ${s.status}${s.stats ? ` ${s.stats.fps} fps` : ''}${s.errorDetails ? ` (${s.errorDetails})` : ''}`);
+        log.log(`stream: ${s.status}${s.stats ? ` ${s.stats.fps} fps` : ''}${s.errorDetails ? ` (${s.errorDetails})` : ''}`);
       }),
     );
     session.camera
-      .startStream({ rtmpUrl: cfg.rtmpUrl, video: cfg.videoConfig })
+      .startStream({ rtmpUrl: cfg.rtmpUrl, video: cfg.streamConfig })
       .then(() => {
         streaming = true;
         store.event('stream_requested', { rtmpUrl: cfg.rtmpUrl });
       })
       .catch((err) => {
         store.event('stream_error', { message: String(err?.message ?? err) });
-        log.warn(`video failed to start: ${err?.message ?? err}`);
+        log.warn(`stream failed to start: ${err?.message ?? err}`);
       });
   }
 
@@ -84,7 +85,7 @@ export function attachSession(session, store, cfg, log = console, { beforeClose 
         /* already gone */
       }
     }
-    if (streaming || cfg.video) {
+    if (streaming || cfg.stream) {
       try {
         await session.camera.stopStream();
       } catch {

@@ -85,7 +85,7 @@ shared/protocol/           Versioned JSON message contract
 docs/                      Architecture, milestones, and runbook
 vendor/vexo-open-kit/      Unmodified Vexo reference kit
 scripts/                   Repository checks
-tools/mentra-glasses-tool/ Mentra Live capture on the Mac: photos, video, every video frame -> data/ and the device API
+tools/mentra-glasses-tool/ Mentra Live screenshots (every frame of the glasses' stream) -> the device API and data/
 ```
 
 ## Definition of done

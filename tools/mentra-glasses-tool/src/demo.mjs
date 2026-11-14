@@ -109,7 +109,7 @@ export function demoSession({ photoDelayMs = 700 } = {}) {
 
 async function main() {
   loadDotEnv();
-  const cfg = { ...readConfig(), video: false };
+  const cfg = { ...readConfig(), stream: false };
   if (!process.env.PHOTO_INTERVAL_SEC) cfg.photoIntervalSec = 5;
   const live = await startLiveFeed(cfg, { mode: 'demo' });
   const session = demoSession();

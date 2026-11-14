@@ -11,7 +11,7 @@ export function startRecording({ session, userId, cfg, live = null, log = consol
   const store = new SessionStore(cfg.dataDir, userId);
   const sessionId = path.basename(store.dir);
   const unsubscribe = live ? store.subscribe((event) => live.event(sessionId, event)) : () => {};
-  live?.sessionStarted({ sessionId, user: String(userId ?? ''), video: cfg.video });
+  live?.sessionStarted({ sessionId, user: String(userId ?? ''), stream: cfg.stream });
   const bodyos = cfg.bodyos?.url ? forwardToBodyos(store, { ...cfg.bodyos, log }) : null;
   const stopSession = attachSession(session, store, cfg, log, { beforeClose: async () => bodyos?.drain() });
 

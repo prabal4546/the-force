@@ -2,11 +2,11 @@ const { app, BrowserWindow, dialog, ipcMain, protocol, shell } = require('electr
 const fs = require('node:fs');
 const path = require('node:path');
 const { Readable } = require('node:stream');
-const { scanLibrary, readEvents, resolveInside, contentType, parseRange } = require('./library.cjs');
+const { scanLibrary, readEvents, resolveInside, contentType } = require('./library.cjs');
 const { connectLive, livePort } = require('./live-client.cjs');
 const { createProcessManager } = require('./processes.cjs');
 
-// Photos and videos are served to the page as media://local/<path inside the data folder>.
+// Screenshots are served to the page as media://local/<path inside the data folder>.
 protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
@@ -34,16 +34,7 @@ async function serveMedia(request) {
   if (!file) return new Response('not found', { status: 404 });
   let size;
   try { size = (await fs.promises.stat(file)).size; } catch { return new Response('not found', { status: 404 }); }
-  const headers = { 'Content-Type': contentType(file), 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store' };
-  const range = parseRange(request.headers.get('range'), size);
-  if (range?.invalid) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
-  if (range) {
-    const body = Readable.toWeb(fs.createReadStream(file, { start: range.start, end: range.end }));
-    return new Response(body, {
-      status: 206,
-      headers: { ...headers, 'Content-Range': `bytes ${range.start}-${range.end}/${size}`, 'Content-Length': String(range.end - range.start + 1) },
-    });
-  }
+  const headers = { 'Content-Type': contentType(file), 'Cache-Control': 'no-store' };
   return new Response(Readable.toWeb(fs.createReadStream(file)), { status: 200, headers: { ...headers, 'Content-Length': String(size) } });
 }
 
@@ -106,7 +97,7 @@ app.whenReady().then(() => {
     return dataDir;
   });
   ipcMain.handle('live:snapshot', () => ({ ...live, port, processes: processes.snapshot() }));
-  ipcMain.handle('recorder:start', (_e, opts) => processes.start({ mode: opts?.mode, video: opts?.video === true, frames: opts?.frames === true }));
+  ipcMain.handle('recorder:start', (_e, opts) => processes.start({ mode: opts?.mode, fast: opts?.fast === true }));
   ipcMain.handle('recorder:stop', () => processes.stop());
   connectLive({ port, onMessage: onLiveMessage, onState: onLiveState });
   ipcMain.handle('library:reveal', (_e, relPath) => {

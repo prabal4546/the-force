@@ -1,21 +1,17 @@
-// Keep every glasses photo and video in the team's BodyOS API as well as in data/.
-// Contract: docs/api.md on the API branch:
+// Send every glasses screenshot to the team's device API (branch codex/api, docs/api.md there):
 //   POST /v1/devices/connect                  register this tool's glasses as device_type "glasses"
 //   POST /v1/glasses/photos?device_id=<id>    multipart: requestId + photo (JPEG or PNG) -> 201 { artifact_id, photoUrl }
-//   POST /v1/glasses/videos?device_id=<id>    multipart: requestId + video (MP4 or MOV)  -> 201 { artifact_id, videoUrl }
-// The local copy in data/ is always written first; the API copy is extra. A failed upload is
-// retried, then written to events.jsonl as "bodyos_failed" so nothing disappears silently.
+// The copy in data/ is always written first. A failed upload is retried, then written to
+// events.jsonl as "bodyos_failed" so nothing disappears silently.
 //
-// Send files by hand (for example a recording from `npm run video`):
-//   npm run send -- data/video/<time>/recording.mp4 [more files...]
+// Send screenshots already on disk:
+//   npm run send -- data/<time>_stream/photos/*.jpg
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const KINDS = {
-  photo: { route: '/v1/glasses/photos', field: 'photo', url: 'photoUrl', types: { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png' } },
-  video: { route: '/v1/glasses/videos', field: 'video', url: 'videoUrl', types: { '.mp4': 'video/mp4', '.mov': 'video/quicktime' } },
-};
+// What POST /v1/glasses/photos takes (it checks the bytes too).
+const PHOTO_TYPES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const cleanId = (value) => String(value ?? '').replace(/[^A-Za-z0-9_-]/g, '');
 
@@ -31,10 +27,9 @@ export function readBodyosConfig(env = process.env) {
   return { url, token: String(env.BODYOS_SESSION_TOKEN ?? ''), deviceId, parallel };
 }
 
-/** "photo", "video", or null when the API takes neither (judged by the file's extension). */
-export function kindOf(file) {
-  const ext = path.extname(file).toLowerCase();
-  return Object.keys(KINDS).find((kind) => KINDS[kind].types[ext]) ?? null;
+/** The photo's content type, or null when the API does not take this file (judged by its extension). */
+export function photoType(file) {
+  return PHOTO_TYPES[path.extname(file).toLowerCase()] ?? null;
 }
 
 /**
@@ -84,12 +79,10 @@ export function bodyosClient({ url, token = '', deviceId = 'glasses-1', fetchImp
     registered = true;
   }
 
-  /** Send one file. Returns { kind, requestId, artifactId, url }. Throws the last error after retries. */
+  /** Send one photo. Returns { requestId, artifactId, url }. Throws the last error after retries. */
   async function send(file, originalRequestId) {
-    const kind = kindOf(file);
-    if (!kind) throw Object.assign(new Error('the API takes JPEG/PNG photos and MP4/MOV videos only'), { skipped: true });
-    const spec = KINDS[kind];
-    const type = spec.types[path.extname(file).toLowerCase()];
+    const type = photoType(file);
+    if (!type) throw Object.assign(new Error('the API takes JPEG and PNG photos only'), { skipped: true });
     const requestId = apiRequestId(originalRequestId, file);
     let lastError;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -97,10 +90,9 @@ export function bodyosClient({ url, token = '', deviceId = 'glasses-1', fetchImp
         if (!registered) await register();
         const form = new FormData();
         form.set('requestId', requestId);
-        // Read from disk as it is sent: a video can be hundreds of MB.
-        form.set(spec.field, await fs.openAsBlob(file, { type }), path.basename(file));
-        const body = await call(`${spec.route}?device_id=${encodeURIComponent(deviceId)}`, { method: 'POST', body: form });
-        return { kind, requestId, artifactId: body?.artifact_id ?? null, url: body?.[spec.url] ?? null };
+        form.set('photo', await fs.openAsBlob(file, { type }), path.basename(file));
+        const body = await call(`/v1/glasses/photos?device_id=${encodeURIComponent(deviceId)}`, { method: 'POST', body: form });
+        return { requestId, artifactId: body?.artifact_id ?? null, url: body?.photoUrl ?? null };
       } catch (err) {
         lastError = err;
         if (err.status === 404) registered = false; // the API restarted: its registrations are in memory
@@ -115,7 +107,7 @@ export function bodyosClient({ url, token = '', deviceId = 'glasses-1', fetchImp
 }
 
 /**
- * Watch `store` and send each new photo and video to the API, `parallel` at a time (in the order
+ * Watch `store` and send each new photo to the API, `parallel` at a time (in the order
  * they were saved; with more than 1 they may finish out of order).
  * Returns { ready, drain(), stats }. `stats.pending` counts files not sent yet.
  * Call `await drain()` before closing the store.
@@ -123,7 +115,6 @@ export function bodyosClient({ url, token = '', deviceId = 'glasses-1', fetchImp
 export function forwardToBodyos(store, { log = console, parallel = 4, ...settings } = {}) {
   const client = bodyosClient(settings);
   const stats = { stored: 0, failed: 0, skipped: 0, pending: 0 };
-  const dataDir = path.dirname(store.dir); // video events name files relative to data/
   const waiting = [];
   let active = 0;
   let idle = null; // resolves when nothing is waiting or being sent
@@ -134,7 +125,7 @@ export function forwardToBodyos(store, { log = console, parallel = 4, ...setting
       const record = waiting.shift();
       active += 1;
       forward(record)
-        .catch((err) => log.warn(`BodyOS forwarder: ${err.message}`))
+        .catch((err) => log.warn(`device API forwarder: ${err.message}`))
         .finally(() => {
           active -= 1;
           stats.pending -= 1;
@@ -148,11 +139,10 @@ export function forwardToBodyos(store, { log = console, parallel = 4, ...setting
   }
 
   async function forward(record) {
-    const file = record.type === 'video' ? path.join(dataDir, record.file) : path.join(store.dir, record.file);
     try {
-      const result = await client.send(file, record.requestId);
+      const result = await client.send(path.join(store.dir, record.file), record.requestId);
       stats.stored += 1;
-      store.event('bodyos_stored', { kind: result.kind, file: record.file, requestId: result.requestId, artifactId: result.artifactId, url: result.url });
+      store.event('bodyos_stored', { file: record.file, requestId: result.requestId, artifactId: result.artifactId, url: result.url });
     } catch (err) {
       if (err.skipped) {
         stats.skipped += 1;
@@ -161,12 +151,12 @@ export function forwardToBodyos(store, { log = console, parallel = 4, ...setting
       }
       stats.failed += 1;
       store.event('bodyos_failed', { file: record.file, requestId: err.requestId ?? null, status: err.status ?? null, error: String(err.message ?? err) });
-      log.warn(`BodyOS API did not keep ${record.file} (${err.message}). The copy in data/ is safe.`);
+      log.warn(`The device API did not keep ${record.file} (${err.message}). The copy in data/ is safe.`);
     }
   }
 
   const unsubscribe = store.subscribe((record) => {
-    if ((record.type !== 'photo' && record.type !== 'video') || !record.file) return;
+    if (record.type !== 'photo' || !record.file) return;
     waiting.push(record);
     stats.pending += 1;
     pump();
@@ -176,7 +166,7 @@ export function forwardToBodyos(store, { log = console, parallel = 4, ...setting
   const ready = client.register().then(
     () => true,
     (err) => {
-      log.warn(`BodyOS API at ${settings.url} is not reachable yet (${err.message}). Files are still saved in data/ and each one will be tried again.`);
+      log.warn(`The device API at ${settings.url} is not reachable yet (${err.message}). Screenshots are still saved in data/ and each one will be tried again.`);
       return false;
     },
   );
@@ -195,10 +185,8 @@ export function forwardToBodyos(store, { log = console, parallel = 4, ...setting
   };
 }
 
-/** `npm run send -- <files>`: send files already on disk. Exit code 1 if any was not kept. */
-async function main(args) {
-  const ifConfigured = args[0] === '--if-configured'; // used by scripts/record-video.sh
-  const files = ifConfigured ? args.slice(1) : args;
+/** `npm run send -- <files>`: send screenshots already on disk. Exit code 1 if any was not kept. */
+async function main(files) {
   try {
     process.loadEnvFile('.env');
   } catch {
@@ -206,21 +194,20 @@ async function main(args) {
   }
   const cfg = readBodyosConfig();
   if (!cfg.url) {
-    if (ifConfigured) return 0;
-    console.error('Set BODYOS_API_URL (and BODYOS_SESSION_TOKEN if the API has one) to send files.');
+    console.error('Set BODYOS_API_URL (and BODYOS_SESSION_TOKEN if the API has one) to send screenshots.');
     return 1;
   }
   if (!files.length) {
-    console.error('Usage: npm run send -- <photo or video file> [more files...]');
+    console.error('Usage: npm run send -- <JPEG or PNG file> [more files...]');
     return 1;
   }
   const client = bodyosClient(cfg);
   let failed = 0;
   for (const file of files) {
     try {
-      // The folder name (e.g. data/video/<time>/) keeps "recording.mp4" from different runs apart.
+      // The folder name keeps same-named files from different runs apart.
       const r = await client.send(file, path.basename(path.dirname(path.resolve(file))));
-      console.log(`kept ${file} -> ${r.url} (${r.kind}, artifact ${r.artifactId})`);
+      console.log(`kept ${file} -> ${r.url} (artifact ${r.artifactId})`);
     } catch (err) {
       failed += 1;
       console.error(`NOT kept ${file}: ${err.message}`);

@@ -1,7 +1,8 @@
-// Receive photos and video clips straight from Mentra Live over your Wi-Fi. No Mentra cloud, no ngrok.
+// Receive photos straight from Mentra Live over your Wi-Fi. No Mentra cloud, no ngrok.
 //   npm run receive
 // Then, in Mentra's example app (Camera screen, "Use cloud server" on), paste the printed
-// "Media upload URL". Every photo and every recorded clip lands in data/ and in the Glasses Viewer.
+// "Media upload URL". Every photo lands in data/, in the Glasses Viewer and (BODYOS_API_URL) in the
+// device API. Video clips are refused: this tool keeps screenshots only (fast ones: npm run frames).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -13,7 +14,7 @@ import { startLiveFeed } from './live.mjs';
 import { SessionStore } from './store.mjs';
 import { forwardToBodyos } from './bodyos.mjs';
 
-export const MAX_UPLOAD_BYTES = 300 * 1024 * 1024; // a few minutes of 720p video
+export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // a full-size photo is a few MB
 
 const PHOTO_TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 
@@ -24,9 +25,6 @@ export function photoFormat(buf) {
   if (buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'webp';
   return null;
 }
-
-/** MP4/MOV files carry "ftyp" at byte 4. */
-export const isMp4 = (buf) => buf.length > 12 && buf.toString('ascii', 4, 8) === 'ftyp';
 
 /** A request id from the network, made safe for a file name. */
 export const safeId = (value) =>
@@ -50,11 +48,9 @@ function limit(max) {
   });
 }
 
-const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
-
 /**
- * The receiver. Listens on the local network (the glasses must reach it), keeps one folder of
- * photos for this run and one recording folder per video clip.
+ * The receiver. Listens on the local network (the glasses must reach it) and keeps one folder of
+ * photos for this run.
  */
 export async function createReceiver({ dataDir, port = 8787, host = '0.0.0.0', token = '', live = null, publicHost = lanAddress(), log = console, maxBytes = MAX_UPLOAD_BYTES, bodyos = null }) {
   const store = new SessionStore(dataDir, 'mentra-app');
@@ -87,28 +83,18 @@ export async function createReceiver({ dataDir, port = 8787, host = '0.0.0.0', t
     } catch (err) {
       return json(res, err.status === 413 || /too large/.test(String(err?.cause?.message ?? err?.message)) ? 413 : 400, { success: false, error: 'could not read the upload' });
     }
-    const field = ['photo', 'video', 'file'].find((name) => form.get(name) instanceof Blob);
-    if (!field) return json(res, 400, { success: false, error: 'no photo, video or file field' });
-    const blob = form.get(field);
-    const buf = Buffer.from(await blob.arrayBuffer());
+    const video = form.get('video');
+    const field = ['photo', 'file'].find((name) => form.get(name) instanceof Blob);
+    if (video instanceof Blob || String(form.get(field)?.type ?? '').startsWith('video/')) {
+      log.warn('a video clip was sent and refused: this tool keeps screenshots only');
+      return json(res, 415, { success: false, error: 'videos are not kept: this tool keeps screenshots (photos) only' });
+    }
+    if (!field) return json(res, 400, { success: false, error: 'no photo or file field' });
+    const buf = Buffer.from(await form.get(field).arrayBuffer());
     if (!buf.length) return json(res, 400, { success: false, error: 'empty file' });
     const requestId = safeId(form.get('requestId'));
-    const wantsVideo = field === 'video' || String(blob.type).startsWith('video/');
     const hostHeader = /^[A-Za-z0-9.\-[\]:]+$/.test(String(req.headers.host ?? '')) ? req.headers.host : `${publicHost}:${port}`;
     const mediaId = crypto.randomBytes(16).toString('hex');
-
-    if (wantsVideo) {
-      if (!isMp4(buf)) return json(res, 415, { success: false, error: 'video must be MP4' });
-      const dir = path.join(path.resolve(dataDir), 'video', `${stamp()}_${requestId}`);
-      fs.mkdirSync(dir, { recursive: true });
-      const file = path.join(dir, 'recording.mp4');
-      await fs.promises.writeFile(file, buf);
-      served.set(mediaId, { file, type: 'video/mp4' });
-      store.event('video', { file: path.relative(path.resolve(dataDir), file).split(path.sep).join('/'), bytes: buf.length, requestId });
-      log.log(`video saved: ${file} (${(buf.length / 1e6).toFixed(1)} MB)`);
-      const url = `http://${hostHeader}/media/${mediaId}.mp4`;
-      return json(res, 200, { success: true, requestId, mediaType: 'video', bytes: buf.length, url, mediaUrl: url, videoUrl: url });
-    }
 
     const format = photoFormat(buf);
     if (!format) return json(res, 415, { success: false, error: 'photo must be JPEG, PNG or WebP' });
@@ -140,7 +126,7 @@ export async function createReceiver({ dataDir, port = 8787, host = '0.0.0.0', t
     }
     json(res, 404, { success: false, error: 'not found' });
   });
-  server.requestTimeout = 10 * 60 * 1000; // a big clip over slow Wi-Fi
+  server.requestTimeout = 2 * 60 * 1000; // a full-size photo over slow Wi-Fi
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -171,7 +157,7 @@ async function main() {
   const cfg = readConfig();
   const port = Number(process.env.RECEIVER_PORT ?? 8787);
   const publicHost = lanAddress();
-  const rtmpUrl = `rtmp://${publicHost}:1935/live/glasses`;
+  const rtmpUrl = `rtmp://${publicHost}:1935/live/glasses`; // for `npm run frames`, shown by the viewer
   const live = await startLiveFeed(cfg, { mode: 'receiver', uploadUrl: `http://${publicHost}:${port}/upload`, rtmpUrl });
   let receiver;
   try {
@@ -182,22 +168,22 @@ async function main() {
     process.exit(1);
   }
   console.log('');
-  console.log('Receiving photos and videos from Mentra Live.');
+  console.log('Receiving photos from Mentra Live.');
   console.log(`  Media upload URL:  ${receiver.uploadUrl}`);
-  console.log(`  Live video (RTMP): ${rtmpUrl}   (run "npm run video" for this)`);
   console.log(`  Saving to:         ${receiver.store.dir}`);
   console.log(cfg.bodyos.url
-    ? `  Also keeping in:   BodyOS API ${cfg.bodyos.url} (device ${cfg.bodyos.deviceId}): photos and videos`
-    : '  BodyOS API:        off (set BODYOS_API_URL to keep photos and videos there too)');
+    ? `  Sent to:           device API ${cfg.bodyos.url} (device ${cfg.bodyos.deviceId})`
+    : '  Device API:        off (set BODYOS_API_URL to send every photo to the codex/api API)');
   console.log('');
   console.log('In the Mentra example app: Camera screen, turn on "Use cloud server", paste the Media upload URL,');
-  console.log('then take photos or record video. The glasses must be on the same Wi-Fi as this computer.');
+  console.log('then take photos. The glasses must be on the same Wi-Fi as this computer.');
+  console.log('Each photo takes seconds; for many screenshots a second use "npm run frames" instead.');
   if (!process.env.UPLOAD_TOKEN) console.log('Anyone on this Wi-Fi can send files here while it runs: stop it (Ctrl+C) when you are done.');
   const stop = async () => {
     await receiver.close('stopped');
     await live?.close();
     const b = receiver.bodyos?.stats;
-    console.log(`Stopped. ${receiver.store.photoCount} photos saved.${b ? ` BodyOS API: ${b.stored} kept, ${b.failed} failed, ${b.skipped} skipped.` : ''}`);
+    console.log(`Stopped. ${receiver.store.photoCount} photos saved.${b ? ` Device API: ${b.stored} kept, ${b.failed} failed, ${b.skipped} skipped.` : ''}`);
     process.exit(0);
   };
   process.once('SIGINT', stop);

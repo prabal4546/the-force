@@ -85,12 +85,12 @@ test('timer photos do not overlap and a failed photo is logged, not thrown', asy
   assert.ok(events(store).some((e) => e.type === 'photo_error' && /busy/.test(e.message)));
 });
 
-test('video mode starts one RTMP stream, turns photos off, stops the stream on exit', async () => {
-  const { session, store, stop, cfg } = setup({ VIDEO: '1', RTMP_URL: 'rtmp://10.0.0.5:1935/live/glasses' });
+test('STREAM=1 starts one RTMP stream for npm run frames, turns photo commands off, stops the stream on exit', async () => {
+  const { session, store, stop, cfg } = setup({ STREAM: '1', RTMP_URL: 'rtmp://10.0.0.5:1935/live/glasses' });
   assert.equal(cfg.photoIntervalSec, 0);
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(session.calls.startStream.rtmpUrl, 'rtmp://10.0.0.5:1935/live/glasses');
-  assert.equal(session.calls.startStream.video.width, 1280);
+  assert.deepEqual(session.calls.startStream.video, { width: 1280, height: 720, frameRate: 30, bitrate: 2_000_000 });
   session.handlers.stream({ status: 'streaming', stats: { fps: 15 } });
   session.handlers.button({ buttonId: 'main', pressType: 'short' }); // no photo while streaming
   await stop();
@@ -108,4 +108,12 @@ test('stop is safe to call twice', async () => {
 test('bad settings are refused with a clear message', () => {
   assert.throws(() => readConfig({ PHOTO_SIZE: 'huge' }), /PHOTO_SIZE/);
   assert.throws(() => readConfig({ PORT: 'abc' }), /PORT/);
+  assert.throws(() => readConfig({ STREAM_FPS: '0' }), /STREAM_FPS/);
+});
+
+test('the stream is off unless STREAM=1; its size and rate can be set', () => {
+  assert.equal(readConfig({}).stream, false);
+  assert.equal(readConfig({}).photoIntervalSec, 10);
+  assert.equal(readConfig({ STREAM: '1', STREAM_FPS: '15', STREAM_WIDTH: '1920', STREAM_HEIGHT: '1080' }).streamConfig.frameRate, 15);
+  assert.equal(readConfig({ STREAM: '1', STREAM_WIDTH: '1920' }).streamConfig.width, 1920);
 });

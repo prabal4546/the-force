@@ -95,7 +95,7 @@ test('live feed listens on 127.0.0.1 only', async () => {
 
 test('a demo recording reaches the live feed and the disk', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glasses-'));
-  const cfg = { ...readConfig({ DATA_DIR: root, PHOTO_INTERVAL_SEC: '0.2' }), video: false };
+  const cfg = { ...readConfig({ DATA_DIR: root, PHOTO_INTERVAL_SEC: '0.2' }), stream: false };
   const live = await createLiveFeed({ port: 0 });
   const viewer = listen(live.port);
   await viewer.ready;

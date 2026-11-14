@@ -8,7 +8,6 @@ export const mediaUrl = (rel) => 'media://local/' + rel.split('/').map(encodeURI
 const fmtTime = (ms) =>
   ms ? new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' }) : 'unknown time';
 const fmtClock = (ms) => (ms ? new Date(ms).toLocaleTimeString(undefined, { hour12: false }) + '.' + String(ms % 1000).padStart(3, '0') : '');
-const fmtBytes = (n) => (n > 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.round(n / 1e3)} kB`);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** The recorder's live feed, as the app's main process passes it on. */
@@ -17,7 +16,7 @@ function useLive() {
     online: false,
     status: null,
     events: [],
-    processes: { status: { recorder: { running: false }, video: { running: false } }, log: [] },
+    processes: { status: { recorder: { running: false }, frames: { running: false } }, log: [] },
   });
   useEffect(() => {
     let alive = true;
@@ -44,24 +43,24 @@ function useLive() {
 const phaseOf = (live) => (!live.online ? 'offline' : live.status?.sessions?.length ? 'connected' : 'waiting');
 const PHASE_TEXT = { offline: 'Recorder off', waiting: 'Waiting for glasses', connected: 'Glasses connected' };
 const modeOf = (live) => live.status?.recorder?.mode ?? null;
-const CONNECTED_TEXT = { receiver: 'Receiving from glasses', frames: 'Cutting pictures from live video' };
+const CONNECTED_TEXT = { receiver: 'Receiving from glasses', frames: 'Fast screenshots' };
 const phaseLabel = (live, phase) => (phase === 'connected' ? CONNECTED_TEXT[modeOf(live)] ?? PHASE_TEXT[phase] : PHASE_TEXT[phase]);
 
 export default function App() {
   const [lib, setLib] = useState(null);
-  const [selected, setSelected] = useState({ kind: 'live' }); // { kind: 'live' | 'session' | 'video', id }
+  const [selected, setSelected] = useState({ kind: 'live' }); // { kind: 'live' | 'session', id }
   const live = useLive();
   const phase = phaseOf(live);
 
   const refresh = useCallback(async () => setLib(await api.scan()), []);
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 2000); // new photos and recordings show up by themselves
+    const t = setInterval(refresh, 2000); // new screenshots show up by themselves
     return () => clearInterval(t);
   }, [refresh]);
 
   // A new photo from the glasses: look at the folder again right away.
-  // At most once a second: a live-video run can send many pictures a second.
+  // At most once a second: fast screenshots come many a second.
   const lastEvent = live.events.at(-1);
   const lastRefresh = useRef(0);
   useEffect(() => {
@@ -73,7 +72,7 @@ export default function App() {
   // Drop a selection whose folder disappeared.
   useEffect(() => {
     if (!lib || selected.kind === 'live') return;
-    const exists = (selected.kind === 'session' ? lib.sessions : lib.videos).some((x) => x.id === selected.id);
+    const exists = lib.sessions.some((x) => x.id === selected.id);
     if (!exists) setSelected({ kind: 'live' });
   }, [lib, selected]);
 
@@ -84,7 +83,7 @@ export default function App() {
   };
 
   if (!lib) return <div className="loading">Loading…</div>;
-  const item = selected.kind !== 'live' && (selected.kind === 'session' ? lib.sessions : lib.videos).find((x) => x.id === selected.id);
+  const item = selected.kind === 'session' && lib.sessions.find((x) => x.id === selected.id);
 
   return (
     <div className="app">
@@ -108,26 +107,15 @@ export default function App() {
           <span className="nav-sub">{phaseLabel(live, phase)}</span>
         </button>
 
-        <Section title="Recordings" count={lib.videos.length}>
-          {lib.videos.map((v) => (
-            <NavItem
-              key={v.id}
-              active={selected?.kind === 'video' && selected.id === v.id}
-              onClick={() => setSelected({ kind: 'video', id: v.id })}
-              title={fmtTime(v.time)}
-              sub={[v.recording ? fmtBytes(v.recordingBytes) : 'no video file', plural(v.frames.length, 'frame')].join(' · ')}
-              live={v.live}
-            />
-          ))}
-        </Section>
-        <Section title="Photo sessions" count={lib.sessions.length}>
+        <Section title="Screenshot sessions" count={lib.sessions.length}>
           {lib.sessions.map((s) => (
             <NavItem
               key={s.id}
               active={selected?.kind === 'session' && selected.id === s.id}
               onClick={() => setSelected({ kind: 'session', id: s.id })}
               title={fmtTime(s.time)}
-              sub={`${plural(s.photoCount ?? s.photos.length, 'photo')} · ${plural(s.events, 'event')}`}
+              sub={`${plural(s.photoCount ?? s.photos.length, 'screenshot')} · ${plural(s.events, 'event')}`}
+              live={s.live}
             />
           ))}
         </Section>
@@ -136,8 +124,7 @@ export default function App() {
       <main className="main">
         {selected.kind === 'live' && <LiveView live={live} phase={phase} lib={lib} onChanged={refresh} />}
         {selected.kind !== 'live' && !item && <Empty lib={lib} onChoose={choose} />}
-        {item && selected.kind === 'session' && <SessionView key={item.id} session={item} />}
-        {item && selected.kind === 'video' && <VideoView key={item.id} video={item} />}
+        {item && <SessionView key={item.id} session={item} />}
       </main>
     </div>
   );
@@ -173,9 +160,8 @@ function Empty({ lib, onChoose }) {
     <div className="empty">
       <h1>{lib.exists ? 'Nothing recorded yet' : 'No data folder here yet'}</h1>
       <p>
-        This app shows what <code>mentra-glasses-tool</code> saves. Start it with <code>npm start</code> in{' '}
-        <code>mentra-glasses-tool</code>, open the app on the glasses, and photos appear here by themselves. For video, run{' '}
-        <code>npm run video</code> too.
+        This app shows the screenshots <code>mentra-glasses-tool</code> saves. Run <code>npm run frames</code> in{' '}
+        <code>mentra-glasses-tool</code>, point the glasses' stream at it, and screenshots appear here by themselves.
       </p>
       <p className="muted">Looking in {lib.root}</p>
       <button className="primary" onClick={onChoose}>
@@ -222,7 +208,7 @@ function SessionView({ session }) {
 
   const total = session.photoCount ?? session.photos.length;
   const offset = total - session.photos.length; // the library lists the newest ones of a big run
-  const meta = [session.label, plural(total, 'photo'), plural(session.events, 'event'), session.imu ? plural(session.imu, 'IMU sample') : null]
+  const meta = [session.label, plural(total, 'screenshot'), plural(session.events, 'event'), session.imu ? plural(session.imu, 'IMU sample') : null]
     .filter(Boolean)
     .join(' · ');
 
@@ -232,7 +218,7 @@ function SessionView({ session }) {
         <div className="tabs" role="tablist">
           {['photos', 'events'].map((t) => (
             <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-              {t === 'photos' ? 'Photos' : 'Events'}
+              {t === 'photos' ? 'Screenshots' : 'Events'}
             </button>
           ))}
         </div>
@@ -242,12 +228,12 @@ function SessionView({ session }) {
         (session.photos.length ? (
           <>
             {offset > 0 && (
-              <p className="muted pad">Showing the newest {session.photos.length} of {total} photos. All of them are in the folder (Show in Finder).</p>
+              <p className="muted pad">Showing the newest {session.photos.length} of {total} screenshots. All of them are in the folder (Show in Finder).</p>
             )}
             <Grid items={session.photos} offset={offset} onOpen={setOpen} />
           </>
         ) : (
-          <p className="muted pad">No photos in this session.</p>
+          <p className="muted pad">No screenshots in this session.</p>
         ))}
       {tab === 'events' && <EventsTable events={events} />}
       {open !== null && <Lightbox items={session.photos} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />}
@@ -344,63 +330,6 @@ function EventsTable({ events }) {
   );
 }
 
-function VideoView({ video }) {
-  const [open, setOpen] = useState(null);
-  const [tick, setTick] = useState(0);
-  const [failed, setFailed] = useState(false);
-
-  // While video is arriving, show the newest frame twice a second.
-  useEffect(() => {
-    if (!video.live || !video.latest) return;
-    const t = setInterval(() => setTick((n) => n + 1), 500);
-    return () => clearInterval(t);
-  }, [video.live, video.latest]);
-
-  const isMkv = video.recording?.endsWith('.mkv');
-  const meta = [video.recording ? fmtBytes(video.recordingBytes) : 'no video file yet', plural(video.frames.length, 'frame screenshot')].join(' · ');
-
-  return (
-    <div className="view">
-      <Toolbar title={fmtTime(video.time)} meta={meta} reveal={video.recording ?? video.latest ?? video.frames[0]} />
-
-      {video.live && video.latest && (
-        <section className="panel">
-          <h2>
-            <span className="live">LIVE</span> Newest frame
-          </h2>
-          <img className="live-frame" src={`${mediaUrl(video.latest)}?t=${tick}`} alt="Newest frame from the glasses" />
-        </section>
-      )}
-
-      {video.recording && (
-        <section className="panel">
-          <h2>Recording</h2>
-          {video.live && <p className="muted">Still recording. Reopen this view later to watch to the end.</p>}
-          {!failed ? (
-            <video className="player" src={mediaUrl(video.recording)} controls preload="metadata" onError={() => setFailed(true)} />
-          ) : (
-            <div className="notice">
-              <p>This recording cannot be played here{isMkv ? ' (older .mkv recording)' : ''}. Convert it to MP4 in a terminal:</p>
-              <code>
-                ffmpeg -i {video.recording.split('/').pop()} -c copy recording.mp4
-              </code>
-              <button onClick={() => api.reveal(video.recording)}>Show in Finder</button>
-            </div>
-          )}
-        </section>
-      )}
-
-      {video.frames.length > 0 && (
-        <section className="panel">
-          <h2>Frame screenshots</h2>
-          <Grid items={video.frames} onOpen={setOpen} />
-        </section>
-      )}
-      {open !== null && <Lightbox items={video.frames} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />}
-    </div>
-  );
-}
-
 const ago = (ms) => {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.floor(s / 60)} min ago` : `${Math.floor(s / 3600)} h ago`;
@@ -408,19 +337,20 @@ const ago = (ms) => {
 
 function describe(e) {
   switch (e.type) {
-    case 'photo': return e.reason === 'mentra-app' ? `Photo received (${Math.round((e.bytes ?? 0) / 1000)} kB)` : `Photo saved (${e.reason ?? 'timer'})`;
-    case 'video': return `Video received (${((e.bytes ?? 0) / 1e6).toFixed(1)} MB)`;
+    case 'photo': return e.reason === 'mentra-app' ? `Photo received (${Math.round((e.bytes ?? 0) / 1000)} kB)` : e.reason === 'stream' ? `Screenshot saved (${Math.round((e.bytes ?? 0) / 1000)} kB)` : `Photo saved (${e.reason ?? 'timer'})`;
+    case 'frames_start': return 'Waiting for the glasses\' stream';
+    case 'frames_end': return `Stream ended (${e.frames} screenshots)`;
     case 'receiver_start': return 'Receiver started';
-    case 'bodyos_stored': return `Kept in BodyOS API (${e.artifactId ?? 'no id'})`;
-    case 'bodyos_failed': return `BodyOS API did not keep it: ${e.error}`;
-    case 'bodyos_skipped': return `Not sent to BodyOS API: ${e.reason}`;
+    case 'bodyos_stored': return `Kept in the device API (${e.artifactId ?? 'no id'})`;
+    case 'bodyos_failed': return `The device API did not keep it: ${e.error}`;
+    case 'bodyos_skipped': return `Not sent to the device API: ${e.reason}`;
     case 'photo_error': return `Photo failed: ${e.message}`;
     case 'head_position': return `Head ${e.position}`;
     case 'button': return `Button: ${e.pressType} press`;
     case 'touch': return `Touch: ${String(e.gesture ?? '').replace(/_/g, ' ')}`;
     case 'battery': return `Battery ${e.level}%${e.charging ? ', charging' : ''}`;
-    case 'stream_status': return `Video: ${e.status}`;
-    case 'stream_error': return `Video failed: ${e.message}`;
+    case 'stream_status': return `Stream: ${e.status}`;
+    case 'stream_error': return `Stream failed: ${e.message}`;
     case 'session_start': return 'Glasses connected';
     case 'session_end': return 'Glasses disconnected';
     default: return e.type;
@@ -428,8 +358,7 @@ function describe(e) {
 }
 
 function LiveView({ live, phase, lib, onChanged }) {
-  const [video, setVideo] = useState(false);
-  const [everyFrame, setEveryFrame] = useState(false);
+  const [fast, setFast] = useState(true);
   const [message, setMessage] = useState('');
   const [, setNow] = useState(0);
   useEffect(() => {
@@ -443,10 +372,7 @@ function LiveView({ live, phase, lib, onChanged }) {
   const mine = session ? live.events.filter((m) => m.sessionId === session.sessionId).map((m) => m.event) : [];
   const last = (type) => [...mine].reverse().find((e) => e.type === type);
   const photos = mine.filter((e) => e.type === 'photo');
-  const videos = mine.filter((e) => e.type === 'video');
   const latestPhoto = photos.at(-1);
-  const latestVideo = videos.at(-1);
-  const showVideo = latestVideo && (!latestPhoto || latestVideo.time > latestPhoto.time);
   const receiving = modeOf(live) === 'receiver';
   const framesRun = modeOf(live) === 'frames'; // npm run frames started in a terminal
   const uploadUrl = receiving ? live.status?.recorder?.uploadUrl : null;
@@ -466,18 +392,18 @@ function LiveView({ live, phase, lib, onChanged }) {
   const caps = last('session_start')?.capabilities;
   const recorderDir = live.status?.recorder?.dataDir;
   const otherFolder = recorderDir && lib.root !== recorderDir;
-  const liveVideo = lib.videos.find((v) => v.live && v.latest);
+  // npm run frames keeps latest.jpg (its newest screenshot) fresh: show it twice a second.
+  const liveShot = lib.sessions.find((s) => s.live && s.latest);
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    if (!liveVideo) return;
+    if (!liveShot) return;
     const t = setInterval(() => setTick((n) => n + 1), 500);
     return () => clearInterval(t);
-  }, [liveVideo]);
+  }, [liveShot]);
 
   const start = async (mode) => {
     setMessage('');
-    const withVideo = mode !== 'demo' && video;
-    const res = await api.startRecorder(mode, withVideo, withVideo && everyFrame);
+    const res = await api.startRecorder(mode, mode !== 'demo' && fast);
     if (!res?.ok) setMessage(res?.message ?? 'Could not start.');
   };
 
@@ -505,7 +431,7 @@ function LiveView({ live, phase, lib, onChanged }) {
               <strong>
                 {{ demo: 'Demo glasses running', receiver: 'Receiver running', glasses: 'Cloud recorder running' }[proc.recorder.mode] ?? 'Running'}
               </strong>
-              {proc.video.running && (proc.video.frames ? ' · every live-video frame becomes a picture' : ' · receiving video')}
+              {proc.frames.running && ' · fast screenshots from the live stream'}
             </p>
             <button onClick={() => api.stopRecorder()}>Stop</button>
           </>
@@ -514,14 +440,9 @@ function LiveView({ live, phase, lib, onChanged }) {
         ) : (
           <>
             <button className="primary" onClick={() => start('receiver')}>Receive from glasses</button>
-            <label className="check">
-              <input type="checkbox" checked={video} onChange={(e) => setVideo(e.target.checked)} /> with live video
+            <label className="check" title="npm run frames: a screenshot per frame of the glasses' live stream, each sent to the device API when BODYOS_API_URL is set">
+              <input type="checkbox" checked={fast} onChange={(e) => setFast(e.target.checked)} /> fast screenshots
             </label>
-            {video && (
-              <label className="check" title="npm run frames: a JPEG per video frame, each sent to the BodyOS API when BODYOS_API_URL is set">
-                <input type="checkbox" checked={everyFrame} onChange={(e) => setEveryFrame(e.target.checked)} /> every frame as a picture
-              </label>
-            )}
             <span className="sep" />
             <button onClick={() => start('demo')}>Try demo glasses</button>
             <button onClick={() => start('glasses')}>Cloud recorder</button>
@@ -539,11 +460,12 @@ function LiveView({ live, phase, lib, onChanged }) {
 
       {phase === 'offline' && !ours && (
         <section className="panel hint">
-          <h2>Get photos and videos from the glasses</h2>
+          <h2>Get screenshots from the glasses</h2>
           <ol>
             <li>Connect the glasses in Mentra’s example app (TestFlight, on this Mac or your iPhone) and put them on the same Wi-Fi as this Mac.</li>
-            <li>Press <strong>Receive from glasses</strong>. It shows a <em>Media upload URL</em>.</li>
-            <li>In Mentra’s app: Camera screen, turn on <strong>Use cloud server</strong>, paste the URL, then take photos or record video. They appear here.</li>
+            <li>Leave <strong>fast screenshots</strong> ticked and press <strong>Receive from glasses</strong>. It shows two addresses.</li>
+            <li>In Mentra’s app: paste the <em>stream</em> address into the <strong>Stream</strong> screen and start it. Every frame becomes a screenshot here and in the device API.</li>
+            <li>Single photos work too: Camera screen, <strong>Use cloud server</strong>, paste the <em>Media upload URL</em>.</li>
           </ol>
           <p className="muted">
             No glasses yet? <strong>Try demo glasses</strong>. Using the MentraOS app and ngrok instead? <strong>Cloud recorder</strong> (needs <code>.env</code>).
@@ -562,11 +484,11 @@ function LiveView({ live, phase, lib, onChanged }) {
         <section className="panel urls">
           <h2>Paste into Mentra’s app</h2>
           <div className="url-row">
-            <span className="url-label">Live video (Stream screen)</span>
+            <span className="url-label">Stream (Stream screen)</span>
             <code className="url">{rtmpUrl}</code>
             <button onClick={() => copy(rtmpUrl)}>{copied === rtmpUrl ? 'Copied' : 'Copy'}</button>
           </div>
-          <p className="muted">Every frame becomes a picture in this Mac’s data folder, and in the BodyOS API when it is set up.</p>
+          <p className="muted">Every frame becomes a screenshot in this Mac’s data folder, and in the device API when BODYOS_API_URL is set.</p>
         </section>
       )}
 
@@ -578,16 +500,18 @@ function LiveView({ live, phase, lib, onChanged }) {
             <code className="url">{uploadUrl}</code>
             <button onClick={() => copy(uploadUrl)}>{copied === uploadUrl ? 'Copied' : 'Copy'}</button>
           </div>
-          {rtmpUrl && (
+          {rtmpUrl && proc.frames.running && (
             <div className="url-row">
-              <span className="url-label">Live video (Stream screen)</span>
+              <span className="url-label">Stream (Stream screen)</span>
               <code className="url">{rtmpUrl}</code>
               <button onClick={() => copy(rtmpUrl)}>{copied === rtmpUrl ? 'Copied' : 'Copy'}</button>
             </div>
           )}
           <p className="muted">
             Glasses and this Mac must be on the same Wi-Fi.{' '}
-            {proc.video.running ? 'Live video is being received too.' : 'Tick “with live video” before starting to also receive the live stream.'}
+            {proc.frames.running
+              ? 'Stream address: every frame becomes a screenshot. Media upload URL: single photos.'
+              : 'Single photos only. Tick “fast screenshots” before starting for many a second.'}
           </p>
         </section>
       )}
@@ -595,13 +519,11 @@ function LiveView({ live, phase, lib, onChanged }) {
       {phase === 'connected' && (
         <div className="live-grid">
           <section className="panel">
-            <h2>{liveVideo ? 'Live video frame' : showVideo ? 'Newest video' : 'Newest photo'}</h2>
-            {liveVideo ? (
-              <img className="live-frame" src={`${mediaUrl(liveVideo.latest)}?t=${tick}`} alt="Newest video frame" />
-            ) : showVideo ? (
+            <h2>{liveShot ? 'Newest screenshot' : 'Newest photo'}</h2>
+            {liveShot ? (
               <>
-                <video className="live-frame" key={latestVideo.file} src={mediaUrl(latestVideo.file)} controls preload="metadata" />
-                <p className="muted">{fmtClock(latestVideo.time)} · {ago(latestVideo.time)}</p>
+                <img className="live-frame" src={`${mediaUrl(liveShot.latest)}?t=${tick}`} alt="Newest screenshot from the glasses' stream" />
+                <p className="muted">{plural(liveShot.photoCount, 'screenshot')} so far</p>
               </>
             ) : latestPhoto ? (
               <>
@@ -610,7 +532,7 @@ function LiveView({ live, phase, lib, onChanged }) {
               </>
             ) : (
               <p className="muted">
-                {receiving ? 'Nothing yet. Take a photo or record a clip in Mentra’s app.' : 'No photo yet. The first one takes a few seconds.'}
+                {receiving || framesRun ? 'Nothing yet. Start the stream (or take a photo) in Mentra’s app.' : 'No photo yet. The first one takes a few seconds.'}
               </p>
             )}
           </section>
@@ -622,7 +544,6 @@ function LiveView({ live, phase, lib, onChanged }) {
                 <>
                   <dt>Since</dt><dd>{ago(session.startedAt)}</dd>
                   <dt>Photos</dt><dd>{photos.length}</dd>
-                  <dt>Videos</dt><dd>{videos.length}</dd>
                 </>
               ) : (
                 <>

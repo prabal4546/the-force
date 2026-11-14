@@ -1,5 +1,5 @@
-// Starts and stops the recorder (or the demo) and the video receiver from the app,
-// and keeps the last lines they print.
+// Starts and stops the recorder (or the demo) and the fast-screenshot cutter (npm run frames) from
+// the app, and keeps the last lines they print.
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -9,10 +9,10 @@ const SCRIPTS = { receiver: 'src/receiver.mjs', glasses: 'src/server.mjs', demo:
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 
 function createProcessManager({ toolDir, onUpdate, node = 'node' }) {
-  const children = { recorder: null, video: null };
+  const children = { recorder: null, frames: null };
   const status = {
     recorder: { running: false, mode: null, exitCode: null },
-    video: { running: false, exitCode: null, frames: false },
+    frames: { running: false, exitCode: null },
   };
   const log = [];
 
@@ -48,12 +48,12 @@ function createProcessManager({ toolDir, onUpdate, node = 'node' }) {
     snapshot: () => ({ status, log: [...log] }),
 
     /**
-     * mode 'receiver' = take photos and videos straight from the glasses over Wi-Fi;
+     * mode 'receiver' = take photos straight from the glasses over Wi-Fi;
      * 'glasses' = the cloud recorder (MentraOS app + ngrok); 'demo' = pretend glasses.
-     * video (also receive the live RTMP stream) for 'receiver' and 'glasses'; with frames, every frame
-     * of it also becomes a picture (npm run frames) instead of one per second (npm run video).
+     * fast (for 'receiver' and 'glasses'): also run `npm run frames`, so every frame of the glasses'
+     * live stream becomes a screenshot; 'glasses' then asks the glasses to stream (STREAM=1).
      */
-    start({ mode, video, frames }) {
+    start({ mode, fast }) {
       if (children.recorder) return { ok: false, message: 'Already running.' };
       if (!SCRIPTS[mode]) return { ok: false, message: 'Unknown mode.' };
       if (mode === 'glasses') {
@@ -67,16 +67,15 @@ function createProcessManager({ toolDir, onUpdate, node = 'node' }) {
         }
       }
       status.recorder.mode = mode;
-      const withVideo = mode !== 'demo' && video === true;
-      status.video.frames = withVideo && frames === true;
-      // The recorder already runs the viewer's live feed: frames must not start a second one.
-      if (status.video.frames) run('video', 'frames', node, ['src/frames.mjs'], { LIVE_PORT: '0' });
-      else if (withVideo) run('video', 'video', 'bash', ['scripts/record-video.sh'], {});
-      run('recorder', mode, node, [SCRIPTS[mode]], { VIDEO: withVideo && mode === 'glasses' ? '1' : '0' });
+      const withFrames = mode !== 'demo' && fast === true;
+      // The recorder already runs the viewer's live feed: frames must not start a second one
+      // (the viewer shows its newest screenshot from latest.jpg instead).
+      if (withFrames) run('frames', 'frames', node, ['src/frames.mjs'], { LIVE_PORT: '0' });
+      run('recorder', mode, node, [SCRIPTS[mode]], { STREAM: withFrames && mode === 'glasses' ? '1' : '0' });
       return { ok: true };
     },
 
-    /** Ask nicely (Ctrl+C), then force after 30 seconds: the last pictures and the recording are still being sent to the API. */
+    /** Ask nicely (Ctrl+C), then force after 30 seconds: the last screenshots may still be on their way to the API. */
     stop() {
       for (const child of Object.values(children)) {
         if (!child) continue;
@@ -87,7 +86,7 @@ function createProcessManager({ toolDir, onUpdate, node = 'node' }) {
       }
     },
 
-    running: () => Boolean(children.recorder || children.video),
+    running: () => Boolean(children.recorder || children.frames),
   };
 }
 

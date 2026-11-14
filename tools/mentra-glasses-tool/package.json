@@ -3,13 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local recorder for Mentra Live glasses: photos, video, events and (when available) IMU samples.",
+  "description": "Screenshots from Mentra Live glasses, as many per second as they give, into the team's device API (codex/api).",
   "engines": { "node": ">=20.12" },
   "scripts": {
     "start": "node src/server.mjs",
     "demo": "node src/demo.mjs",
     "receive": "node src/receiver.mjs",
-    "video": "bash scripts/record-video.sh",
     "send": "node src/bodyos.mjs",
     "frames": "node src/frames.mjs",
     "test": "node --test test/*.test.mjs"
