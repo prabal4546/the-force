@@ -57,6 +57,8 @@
   #sending { color: var(--bad); font-weight: 600; min-height: 22px; }
   #heard { font-size: 18px; min-height: 28px; }
   #heard b { color: var(--accent); }
+  input[type=text] { font: inherit; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 150px; }
+  input[type=color] { width: 44px; height: 38px; padding: 2px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); }
   input[type=number] { font: inherit; padding: 6px 8px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 76px; }
   #swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 6px; border: 1px solid var(--line); }
   body.error main { outline: 4px solid var(--bad); outline-offset: 6px; border-radius: 18px; }
@@ -164,6 +166,30 @@
     <p id="sending" style="margin-top: 12px"></p>
     <p class="muted">The microphone is on from connect: everything it hears, from everyone nearby, goes over the internet to Deepgram.
       Tell the people near you, and press Mute when you are not using it. The key stays in this tab only and is gone when the tab closes.</p>
+  </section>
+
+  <section class="card">
+    <div class="row spread" style="margin-bottom: 12px">
+      <h2 style="margin: 0">Incoming messages</h2>
+      <span id="speechState" class="pill">No key</span>
+    </div>
+    <div class="row">
+      <input id="elevenKey" type="password" placeholder="Paste ElevenLabs key, press Enter" autocomplete="off">
+      <button id="forgetEleven">Forget key</button>
+    </div>
+    <p class="muted" style="margin: 10px 0 14px">For <code>say</code>: the text goes to ElevenLabs and plays through this computer's speaker. The key stays in this tab only.</p>
+    <p class="muted">Send a test message, as the hub would:</p>
+    <div class="row">
+      <input id="testDevice" type="text" value="lamp" aria-label="Device">
+      <input id="testColor" type="color" value="#ffaa00" aria-label="Colour">
+      <button id="testActive">active</button>
+    </div>
+    <div class="row" style="margin-top: 8px">
+      <input id="testText" type="text" value="Lamp" aria-label="Text to say">
+      <button id="testSay">say</button>
+      <button id="testError">error</button>
+    </div>
+    <p class="muted" style="margin: 10px 0 0">With the microphone on, the band's light stays blue, so <code>active</code> and <code>error</code> show on this page. Muted, they also set the band's light.</p>
   </section>
 
   <section class="card">
@@ -326,7 +352,8 @@
     $('twistAxis').textContent = cal ? cal.twistAxis + (cal.twistSign > 0 ? '  (+ is clockwise)' : '  (- is clockwise)') : '--';
     $('flickAxis').textContent = cal ? cal.flickAxis + (cal.flickSign > 0 ? '  (+ is right)' : '  (- is right)') : '--';
     const t = state.tapCheck;
-    $('tapCheck').textContent = t.doubleTaps === 0 ? 'double-tap a few times to check' : t.withTapBefore + ' of ' + t.doubleTaps + ' double-taps';
+    $('tapCheck').textContent = (t.doubleTaps === 0 ? 'double-tap a few times to check' : t.withTapBefore + ' of ' + t.doubleTaps + ' double-taps')
+      + (state.tapDelay ? '  (tap waits ' + remote.CONFIG.tapDelayMs + ' ms)' : '  (tap fires at once)');
     $('missedFlick').textContent = state.missedFlick || '--';
 
     $('motionRate').textContent = state.motionRate + ' samples a second';
@@ -346,6 +373,8 @@
     $('loudBar').style.width = mic.loudness === null ? '0' : Math.max(0, Math.min(100, (60 - mic.loudness) * 2)) + '%';
     $('loudText').textContent = mic.loudness === null ? '--' : mic.loudness + ' dB below full';
     if (document.activeElement !== $('gain')) $('gain').value = mic.gainDb;
+
+    pill($('speechState'), state.speaking ? 'Speaking' : state.hasSpeechKey ? 'Key set for this tab' : 'No key: say is off', state.speaking ? 'blue' : state.hasSpeechKey ? 'good' : '');
 
     // The hub's active device: on the page, because the band's light is blue while the microphone is on.
     $('activeName').textContent = state.active ? state.active.device || 'Active device' : 'No active device';
@@ -367,9 +396,13 @@
     else if (kind === 'wake-timeout') beep(330);
     else if (kind === 'error') {
       beep(220);
+      const before = $('gesture').textContent;
       $('gesture').textContent = 'Error from the hub';
       document.body.classList.add('error');
-      setTimeout(() => document.body.classList.remove('error'), 900);
+      setTimeout(() => {
+        document.body.classList.remove('error');
+        if ($('gesture').textContent === 'Error from the hub') $('gesture').textContent = before;
+      }, 1200);
     }
   });
 
@@ -384,6 +417,22 @@
     remote.setDeepgramKey(key);
   };
   $('forgetKey').onclick = () => { sessionStorage.removeItem(KEY_NAME); remote.setDeepgramKey(''); };
+  const ELEVEN_NAME = 'vexo-elevenlabs-key';          // the ElevenLabs key: handled the same way
+  remote.setElevenLabsKey(sessionStorage.getItem(ELEVEN_NAME) || '');
+  $('elevenKey').onchange = () => {
+    const key = $('elevenKey').value.trim();
+    $('elevenKey').value = '';
+    if (!key) return;
+    sessionStorage.setItem(ELEVEN_NAME, key);
+    remote.setElevenLabsKey(key);
+  };
+  $('forgetEleven').onclick = () => { sessionStorage.removeItem(ELEVEN_NAME); remote.setElevenLabsKey(''); };
+
+  // Test buttons: each sends one incoming message, as the hub would.
+  $('testActive').onclick = () => remote.handle({ type: 'active', device: $('testDevice').value, color: $('testColor').value });
+  $('testSay').onclick = () => remote.handle({ type: 'say', text: $('testText').value });
+  $('testError').onclick = () => remote.handle({ type: 'error' });
+
   $('mute').onclick = () => remote.setMuted(!remote.getState().mic.muted);
   $('gain').onchange = () => remote.setMicGain($('gain').value);
 
@@ -464,6 +513,7 @@
   }
 
   function closeWizard() {
+    remote.setCalibrating(false);
     wizardRun += 1;
     $('wizard').classList.remove('open');
   }
@@ -472,6 +522,7 @@
   async function calibrate() {
     const run = ++wizardRun;
     const poses = {};
+    remote.setCalibrating(true);                     // moving into the poses must not fire gestures
     $('wizard').classList.add('open');
     $('wizSummary').style.display = 'none';
     $('wizRetry').style.display = 'none';
@@ -538,6 +589,7 @@
       $('wizText').textContent = e.message;
     }
     showPhase('', '');
+    remote.setCalibrating(false);
     $('wizMotion').style.display = 'none';
     $('wizCancel').textContent = 'Done';
   }
@@ -586,7 +638,10 @@
 
       await remote.attach(band);                     // motion at 100 a second, both sensors, events, microphone
       await band.configure({ battery: true });
-      if (!remote.getState().calibration) say('Connected to ' + band.name + '. Press Calibrate before using gestures.');
+      if (!remote.getState().calibration) {          // first time in this browser: start the steps
+        say('Connected to ' + band.name + '. Calibrate once before using gestures.');
+        calibrate();
+      }
     } catch (e) {
       setConnected(false);
       say(e.message);                                // the library's messages say what to do next

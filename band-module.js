@@ -5,6 +5,7 @@
 import { CONFIG, checkPose, createDetector, computeCalibration } from './gestures.js';
 import { createWakeListener } from './wake.js';
 import { deepgramLink } from './speech.js';
+import { createSpeaker } from './tts.js';
 
 export { CONFIG, checkPose };
 
@@ -17,6 +18,7 @@ let band = null;
 let calibration = loadCalibration();
 let detector = calibration ? createDetector(calibration, CONFIG) : null;
 let recording = null;              // samples of the calibration pose being recorded
+let calibrating = false;           // the calibration steps are on screen: no gestures meanwhile
 let outbox = [];                   // messages waiting to leave the motion handler
 let active = null;                 // the hub's active device: { device, color }
 let lastFlash = 0;
@@ -37,6 +39,12 @@ let heard = '';                    // the newest text from Deepgram
 let wakeTimer = 0;
 let micQueue = Promise.resolve();  // microphone changes run one after another
 const wake = createWakeListener(CONFIG);
+let reconnects = 0;                // times the Deepgram link was reopened since the last person's action
+
+// Speaking
+let elevenLabsKey = '';            // handed in by the page; never stored here
+let speaking = 0;                  // texts being spoken now: the microphone would hear them
+const speaker = createSpeaker();
 
 // ---- The module interface -------------------------------------------------------------
 
@@ -59,6 +67,9 @@ export function handle(message) {
     showColour();
   } else if (message.type === 'error') {
     signal('error');
+    blinkError();
+  } else if (message.type === 'say') {
+    speak(message.text);
   }
 }
 
@@ -89,6 +100,11 @@ export async function attach(connectedBand) {
   band.on('disconnect', () => { band = null; recording = null; micOn = false; loudness = null; closeLink(); micStatus = 'off'; });
   await band.configure({ motion: CONFIG.motionRate, sensors: 'both', events: true });
   changeMic();
+}
+
+/** The calibration steps are being shown (true) or are over (false). Gestures pause meanwhile. */
+export function setCalibrating(on) {
+  calibrating = Boolean(on);
 }
 
 /** Record the motion of one calibration pose for CONFIG.poseMs. Resolves with the samples. */
@@ -130,6 +146,9 @@ export function getState() {
     wake: { ...wake.state },
     heard,
     hasKey: deepgramKey !== '',
+    hasSpeechKey: elevenLabsKey !== '',
+    speaking: speaking > 0,
+    tapDelay: CONFIG.tapBeforeDoubleTap,
   };
 }
 
@@ -138,12 +157,19 @@ export function setDeepgramKey(key) {
   const next = String(key || '').trim();
   if (next === deepgramKey) return;
   deepgramKey = next;
+  reconnects = 0;
   changeMic(true);
+}
+
+/** The ElevenLabs key typed into the page ('' forgets it). Kept in this variable only. */
+export function setElevenLabsKey(key) {
+  elevenLabsKey = String(key || '').trim();
 }
 
 /** The mute button: true turns the band's microphone off, false turns it back on. */
 export function setMuted(on) {
   muted = Boolean(on);
+  reconnects = 0;
   changeMic();
 }
 
@@ -174,7 +200,7 @@ function loadCalibration() {
 // Runs 100 times a second: collect and detect only, everything slow happens later.
 function onMotion(sample) {
   if (recording) { recording.push(sample); return; }
-  if (detector) send(detector.update(sample));
+  if (detector && !calibrating) send(detector.update(sample));
 }
 
 function onTap(kind, event) {
@@ -182,8 +208,11 @@ function onTap(kind, event) {
   else {
     tapCheck.doubleTaps += 1;
     if (event.t - lastTapTime <= CONFIG.tapCheckMs) tapCheck.withTapBefore += 1;
+    // The check from the real band: no tap before any double-tap means toggle need not wait.
+    if (tapCheck.withTapBefore > 0) CONFIG.tapBeforeDoubleTap = true;
+    else if (tapCheck.doubleTaps >= CONFIG.tapCheckCount) CONFIG.tapBeforeDoubleTap = false;
   }
-  if (detector && !recording) send(detector.tap(kind, event.t));
+  if (detector && !recording && !calibrating) send(detector.tap(kind, event.t));
 }
 
 // The link could not keep up (motion and sound share it): halve the motion rate, once.
@@ -248,6 +277,35 @@ async function flash() {
   flashing = false;
 }
 
+/** An error from the hub: blink red, then our colour again. The page shows it too. */
+async function blinkError() {
+  if (!band || micOn || flashing) return;          // microphone on: the light is locked blue
+  flashing = true;
+  try {
+    for (let i = 0; i < CONFIG.errorBlinks; i++) {
+      await band.setLed('#ff0000');
+      await pause(CONFIG.errorBlinkMs);
+      await band.ledOff();
+      await pause(CONFIG.errorBlinkMs);
+    }
+  } catch (e) {
+    if (e.code !== 'denied' && e.code !== 'not-connected') note(e.message);
+  }
+  await showColour();
+  flashing = false;
+}
+
+/** Speak a text through this computer's speaker. The wake word is deaf meanwhile. */
+async function speak(text) {
+  speaking += 1;
+  try {
+    await speaker.say(text, elevenLabsKey);
+  } catch (e) {
+    note(e.message);
+  }
+  setTimeout(() => { speaking -= 1; }, 400);       // the room's echo and Deepgram's delay
+}
+
 // ---- Inside: voice --------------------------------------------------------------------
 // The microphone is on from connect and its sound goes to Deepgram the whole time. A wake
 // word ("Vexo ...") or the spacebar turns what is said into one command message.
@@ -269,11 +327,21 @@ async function micStart() {
   const mine = deepgramLink({ key: deepgramKey });
   link = mine;
   mine.start({
-    onText: ({ final, text }) => { heard = text; voice(wake.text(text, final, Date.now())); },
+    onText: ({ final, text }) => {
+      if (speaking > 0 && !wake.state.held) return;       // our own voice from the speaker
+      heard = text;
+      voice(wake.text(text, final, Date.now()));
+    },
     onState: (state) => { if (state === 'listening' && link === mine) micStatus = 'listening'; },
-    onError: (problem) => {                        // Deepgram stopped by itself: microphone off, say why
+    onError: (problem) => {                        // Deepgram stopped by itself
       if (link !== mine) return;
       link = null;
+      if (problem === 'closed' && reconnects < 5) {       // it was working: open it again, a few times at most
+        reconnects += 1;
+        micStatus = 'starting';
+        setTimeout(() => changeMic(true), 2000);
+        return;
+      }
       note((VOICE_PROBLEMS[problem] || 'Deepgram stopped.') + ' Press Unmute to try again.');
       micQueue = micQueue.then(async () => { await micOff(); micStatus = 'error'; muted = true; });
     },

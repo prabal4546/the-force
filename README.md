@@ -90,6 +90,18 @@ Paste the team's Deepgram key into the key field on the page. It is kept in that
 sessionStorage only: never put it in a file or a commit. Everything the microphone hears,
 from everyone nearby, goes to Deepgram: tell the people near you and mute when not in use.
 
+### Incoming messages
+
+| Message | What happens |
+|---|---|
+| `{ "type": "active", "device": "lamp", "color": "#ffaa00" }` | The device shows on the page. With the microphone muted the band's light also takes the colour |
+| `{ "type": "say", "text": "Lamp" }` | Spoken through this computer's speaker with ElevenLabs (`tts.js`). Each text is fetched once, then played from memory |
+| `{ "type": "error" }` | The page flashes red with a low beep. Muted, the band's light also blinks red three times and returns to its colour |
+
+The ElevenLabs key goes into its own field on the page and is handled like the Deepgram key.
+The voice and model are `ttsVoiceId` and `ttsModel` in `CONFIG`. The page has test buttons
+that send each of the three messages.
+
 Tests (Node 18 or newer, no band needed):
 
     npm test

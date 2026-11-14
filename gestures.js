@@ -40,7 +40,10 @@ export const CONFIG = {
   peakMemoryMs: 120,        // how long a peak is remembered when comparing the two axes
 
   // Taps
-  tapBeforeDoubleTap: true, // the band sends a tap before a double-tap: hold toggle back
+  tapBeforeDoubleTap: true, // the band sends a tap before a double-tap: hold toggle back.
+                            // Checked on the real band: after tapCheckCount double-taps with no tap
+                            // before any of them, the module sets this to false by itself.
+  tapCheckCount: 3,
   tapDelayMs: 300,          // how long toggle waits for a double-tap to cancel it
   tapCheckMs: 600,          // a tap this close before a double-tap counts as "sent before it"
 
@@ -51,6 +54,12 @@ export const CONFIG = {
   wakeIgnoreMs: 2000,       // a second wake word this soon after one is ignored
   wakeStallMs: 2500,        // words heard but never marked finished: send them after this long
   pushToTalkFlushMs: 1200,  // after the spacebar is released, wait this long for the last words
+
+  // Speaking (ElevenLabs) and the light
+  ttsVoiceId: 'JBFqnCBsd6RMkjVDRZzb',   // the voice; any voice id from the ElevenLabs voice library
+  ttsModel: 'eleven_flash_v2_5',        // the fast model: short device names come back in a fraction of a second
+  errorBlinks: 3,           // red blinks for an error message
+  errorBlinkMs: 180,        // each half of a blink
 
   // All gestures
   cooldownMs: 500,          // quiet time after each gesture
