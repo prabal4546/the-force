@@ -69,11 +69,11 @@ it does not itself specify a window-management action.
 | Component | Remaining work |
 | --- | --- |
 | Band integration | Connect the existing remote browser/proxy adapter to the Mac API and verify BLE ownership, reconnection, calibration, and left/right orientation end to end |
-| Dispatcher | Consume a newly accepted gesture, apply the Demo 1 mapping, keep the same window reference throughout the action, and avoid treating retries as new movement |
-| Window lookup | Request/check macOS Accessibility permission and obtain the focused movable window; reject unsupported windows cleanly |
-| Display selection | Enumerate extended displays, locate the source window's display, and select an adjacent display from the actual arrangement |
-| Window executor | Implement the real window-controller methods, translate coordinates correctly, and keep the same window visible on the target display |
-| Result feedback | Distinguish accepted, executing, completed, and failed; verify the resulting window position instead of reporting success from a mock acknowledgement |
+| Dispatcher | Implemented: `GestureDispatcher` maps an accepted `step` to `move_focused_window`, runs it off the event loop serialized, exposes the result at `GET /v1/band/events/{event_id}/result`, and relies on the existing retry-key buffer so a repeated delivery does not move again |
+| Window lookup | Implemented: `MacOSWindowMover` checks `AXIsProcessTrusted` and reads the frontmost app's focused window frame. Still to confirm on hardware: clean rejection of unsupported/full-screen windows |
+| Display selection | Implemented: `window_geometry` enumerates displays via `CGGetActiveDisplayList`/`CGDisplayBounds`, locates the source display by overlap, and selects the adjacent one from the real arrangement |
+| Window executor | Implemented: `MacOSWindowMover` sets AX size+position via `window_geometry.target_frame` and re-reads the frame to verify it landed on the target display. Needs a two-display on-hardware run |
+| Result feedback | Implemented at the executor level: `MoveResult` distinguishes `completed`/`no_target`/`failed` and verifies the final window position. Still to expose through the HTTP path (see Dispatcher) |
 
 Glass capture, QR recognition, an iPhone coordinator, and voice are not needed for
 the minimal route above. They become dependencies only if the team instead chooses
@@ -81,11 +81,24 @@ the fuller `LOOK -> GRAB -> LOOK -> THROW` profile in `TARGET.md`.
 
 ## Suggested implementation order
 
-1. Make a local test action move a real focused window between the two displays,
-   without band input. Verify permissions, geometry, unsupported windows, and
-   direction with real hardware.
-2. Connect the HTTP event path to that same executor through a small dispatcher.
-   Keep `202 accepted` separate from the eventual result and preserve retry safety.
+1. **(Done, pending on-hardware check with a second display.)** Move a real
+   focused window between displays without band input, via the
+   `bodyos-move-window --direction left|right` probe (`make move-left` /
+   `make move-right`). Placement geometry lives in `window_geometry.py` and is
+   unit-tested; the macOS Accessibility/Quartz calls live in `MacOSWindowMover`.
+   The direction mapping, adjacent-display selection from the physical
+   arrangement, no-target handling, and the missing-permission failure path are
+   implemented. Still to confirm on hardware: a granted-permission move with a
+   real external display attached, and behavior on unsupported/full-screen
+   windows.
+2. **(Done.)** Connect the HTTP event path to that executor through a small
+   dispatcher. `POST /v1/band/events` with a `step` still returns `202 accepted`
+   immediately; the swipe is then handed to `GestureDispatcher`, which runs the
+   move off the event loop (serialized, one swipe at a time). The outcome is
+   polled at `GET /v1/band/events/{event_id}/result`
+   (`executing`/`completed`/`no_target`/`failed`). Retry safety is preserved: a
+   duplicate `Idempotency-Key` is served from the buffer and does **not** move
+   the window again; `toggle`/`select` are accepted but trigger no move.
 3. Replace manual/mock event injection with the band owner's actual swipe adapter.
 4. Add clear failure feedback and verify the full gesture-to-window demo.
 

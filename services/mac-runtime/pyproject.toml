@@ -19,14 +19,17 @@ dependencies = [
 
 [project.optional-dependencies]
 mac = [
-  "pyobjc-framework-Cocoa>=10,<12",
-  "pyobjc-framework-Quartz>=10,<12"
+  # Pinned to the 10.x line so pyobjc-core stays <11, which bleak 0.22 requires.
+  "pyobjc-framework-Cocoa>=10,<11",
+  "pyobjc-framework-Quartz>=10,<11",
+  "pyobjc-framework-ApplicationServices>=10,<11"
 ]
 dev = ["httpx>=0.27,<1"]
 
 [project.scripts]
 bodyos-mac = "bodyos_mac.main:main"
 bodyos-api = "bodyos_mac.api:main"
+bodyos-move-window = "bodyos_mac.move_window:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
