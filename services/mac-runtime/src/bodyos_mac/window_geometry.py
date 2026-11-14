@@ -39,9 +39,21 @@ class Rect:
 
 @dataclass(frozen=True)
 class Display:
+    """One display. ``bounds`` is the whole screen; ``visible`` is the part clear
+    of the menu bar and Dock, when the system reported it."""
+
     index: int
     bounds: Rect
     is_main: bool = False
+    visible: Optional[Rect] = None
+
+    @property
+    def usable(self) -> Rect:
+        return self.visible if self.visible is not None else self.bounds
+
+
+# Displays that touch share an edge exactly; this absorbs rounding only.
+_EDGE_TOLERANCE = 1.0
 
 
 def _overlap_area(a: Rect, b: Rect) -> float:
@@ -88,8 +100,11 @@ def adjacent_display(
 ) -> Optional[Display]:
     """Return the nearest display to the left (-1) or right (1) of ``source``.
 
-    Prefers a display that shares vertical range with the source, then the one
-    nearest horizontally. Returns ``None`` when nothing lies in that direction.
+    A display counts as being on that side only when it lies wholly beyond the
+    source's edge, so one stacked above or below and merely offset sideways is
+    not a neighbour. Prefers a display that shares vertical range with the
+    source, then the one nearest horizontally. Returns ``None`` when nothing
+    lies in that direction.
     """
 
     if direction not in (-1, 1):
@@ -99,9 +114,9 @@ def adjacent_display(
     for display in displays:
         if display.index == source.index:
             continue
-        if direction < 0 and display.bounds.x < source.bounds.x:
+        if direction < 0 and display.bounds.max_x <= source.bounds.x + _EDGE_TOLERANCE:
             candidates.append(display)
-        elif direction > 0 and display.bounds.x > source.bounds.x:
+        elif direction > 0 and display.bounds.x >= source.bounds.max_x - _EDGE_TOLERANCE:
             candidates.append(display)
 
     if not candidates:
@@ -115,35 +130,36 @@ def adjacent_display(
     return candidates[0]
 
 
-def target_frame(window: Rect, source: Display, target: Display) -> Rect:
+def target_frame(
+    window: Rect, source: Display, target: Display, size: Optional[Rect] = None
+) -> Rect:
     """Where the window should land on ``target``.
 
-    Preserves the window's fractional position within the source display, shrinks
-    it to fit if the target is smaller, then clamps so the whole window stays on
-    the target display.
+    Works within each display's usable area (clear of the menu bar and Dock).
+    Shrinks the window to fit if the target is smaller, and keeps it wholly on
+    the target. Its position is carried over as a share of the room it has to
+    move in (0 against the left or top edge, 1 against the right or bottom), so
+    a window moved across and back returns to where it started.
+    ``size`` asks for a width and height other than the
+    window's current one, e.g. the size it had before an earlier move shrank it.
     """
 
-    source_bounds = source.bounds
-    target_bounds = target.bounds
+    source_area = source.usable
+    target_area = target.usable
+    wanted = size if size is not None else window
 
-    fraction_x = (
-        (window.x - source_bounds.x) / source_bounds.width
-        if source_bounds.width
-        else 0.0
+    def share(offset: float, room: float) -> float:
+        return min(max(offset / room, 0.0), 1.0) if room > 0 else 0.0
+
+    share_x = share(window.x - source_area.x, source_area.width - window.width)
+    share_y = share(window.y - source_area.y, source_area.height - window.height)
+
+    width = min(wanted.width, target_area.width)
+    height = min(wanted.height, target_area.height)
+
+    return Rect(
+        target_area.x + share_x * (target_area.width - width),
+        target_area.y + share_y * (target_area.height - height),
+        width,
+        height,
     )
-    fraction_y = (
-        (window.y - source_bounds.y) / source_bounds.height
-        if source_bounds.height
-        else 0.0
-    )
-
-    width = min(window.width, target_bounds.width)
-    height = min(window.height, target_bounds.height)
-
-    new_x = target_bounds.x + fraction_x * target_bounds.width
-    new_y = target_bounds.y + fraction_y * target_bounds.height
-
-    new_x = min(max(new_x, target_bounds.x), target_bounds.max_x - width)
-    new_y = min(max(new_y, target_bounds.y), target_bounds.max_y - height)
-
-    return Rect(new_x, new_y, width, height)

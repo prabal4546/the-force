@@ -100,5 +100,55 @@ class BandMoveTests(unittest.TestCase):
         self.assertEqual(self.result_for(back).json()["target_display"], 0)
 
 
+class BrokenMover:
+    def move_focused_window(self, direction: int):
+        raise RuntimeError("display lookup blew up")
+
+
+class BandMoveFailureTests(unittest.TestCase):
+    def client_for(self, directory, mover):
+        app = create_app(
+            upload_dir=Path(directory), session_token="",
+            command_db=Path(directory) / "commands.sqlite3", window_mover=mover,
+        )
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        client = stack.enter_context(TestClient(app))
+        client.post("/v1/devices/connect", json={"device_id": "band-test", "device_type": "band"})
+        return client
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = directory.name
+
+    def test_mover_that_raises_settles_as_failed(self):
+        client = self.client_for(self.directory, BrokenMover())
+        response = client.post(
+            "/v1/band/events?device_id=band-test", json={"type": "step", "direction": 1},
+            headers={"Idempotency-Key": "swipe-1"},
+        )
+        self.assertEqual(response.status_code, 202)
+        result = client.get("/v1/band/events/swipe-1/result?device_id=band-test").json()
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("display lookup blew up", result["detail"])
+
+    def test_retry_after_restart_does_not_move_again(self):
+        swipe = {"type": "step", "direction": 1}
+        headers = {"Idempotency-Key": "swipe-1"}
+        first_mover = CountingMover()
+        first = self.client_for(self.directory, first_mover)
+        self.assertEqual(first.post("/v1/band/events?device_id=band-test", json=swipe, headers=headers).status_code, 202)
+        self.assertEqual(first_mover.move_count, 1)
+
+        second_mover = CountingMover()
+        second = self.client_for(self.directory, second_mover)  # same database, empty buffer
+        self.assertEqual(second.post("/v1/band/events?device_id=band-test", json=swipe, headers=headers).status_code, 202)
+        self.assertEqual(second_mover.move_count, 0)
+        other = second.post("/v1/band/events?device_id=band-test", json=swipe, headers={"Idempotency-Key": "swipe-2"})
+        self.assertEqual(other.status_code, 202)
+        self.assertEqual(second_mover.move_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -154,9 +154,22 @@ Poll the outcome with the `event_id` from the acceptance response:
 `status` is `executing` until the move resolves, then `completed`, `no_target`
 (no display in that direction), or `failed` (`detail` explains why — e.g.
 Accessibility permission is not granted, or the focused window could not move).
-A `step` served from the retry buffer (same `Idempotency-Key`) does **not**
-dispatch a second move. The result returns **404** before a move is dispatched,
-for non-`step` events, or once it has aged out of the newest-1000 buffer.
+A repeated `step` (same `Idempotency-Key`) does **not** dispatch a second move.
+Keyed steps are also recorded in the command database for a day, so this holds
+when the retry arrives after an API restart: it is accepted with `202` again and
+moves nothing. The result returns **404** before a move is dispatched, for
+non-`step` events, for such a retry after a restart, or once it has aged out of
+the newest-1000 buffer.
+
+Placement rules:
+
+- The target is the nearest display lying wholly to that side in the display
+  arrangement. A display stacked above or below does not count.
+- The window keeps its relative position and lands clear of the menu bar and
+  Dock.
+- A window too large for the target is shrunk to fit. Moving it again restores
+  the size it had, unless it was resized by hand in between.
+- A full-screen window is not moved; the result is `failed` and says so.
 
 The real move needs the pyobjc `mac` extra and macOS Accessibility permission;
 run the API with `--simulate` to exercise this path against an in-memory

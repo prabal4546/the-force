@@ -1,6 +1,7 @@
 import unittest
 
 from bodyos_mac.window_controller import (
+    BackendWindowMover,
     MacOSWindowController,
     SimulatedWindowController,
     SimulatedWindowMover,
@@ -95,6 +96,86 @@ class SimulatedWindowMoverTests(unittest.TestCase):
         mover = SimulatedWindowMover()
         with self.assertRaises(WindowControlError):
             mover.move_focused_window(0)
+
+    def test_shrunk_window_gets_its_size_back(self) -> None:
+        mover = SimulatedWindowMover(
+            displays=[
+                Display(index=0, bounds=Rect(0, 0, 2000, 2000), is_main=True),
+                Display(index=1, bounds=Rect(2000, 0, 800, 600)),
+            ],
+            window=Rect(100, 100, 1500, 1200),
+        )
+        mover.move_focused_window(1)
+        self.assertEqual((mover.window.width, mover.window.height), (800, 600))
+        mover.move_focused_window(-1)
+        self.assertEqual((mover.window.width, mover.window.height), (1500, 1200))
+
+    def test_window_resized_by_hand_keeps_its_new_size(self) -> None:
+        mover = SimulatedWindowMover(
+            displays=[
+                Display(index=0, bounds=Rect(0, 0, 2000, 2000), is_main=True),
+                Display(index=1, bounds=Rect(2000, 0, 800, 600)),
+            ],
+            window=Rect(100, 100, 1500, 1200),
+        )
+        mover.move_focused_window(1)
+        mover._simulated.window = Rect(2100, 50, 400, 300)
+        mover.move_focused_window(-1)
+        self.assertEqual((mover.window.width, mover.window.height), (400, 300))
+
+
+class FakeMoveBackend:
+    def __init__(self, *, trusted=True, full_screen=False, displays_error=None) -> None:
+        self.trusted = trusted
+        self.full_screen = full_screen
+        self.displays_error = displays_error
+        self.window = Rect(100, 100, 400, 300)
+
+    def is_process_trusted(self):
+        return self.trusted
+
+    def focused_window(self):
+        return self, "Fake window", self.window
+
+    def is_full_screen(self, window):
+        return self.full_screen
+
+    def same_window(self, first, second):
+        return first is second
+
+    def displays(self):
+        if self.displays_error:
+            raise WindowControlError(self.displays_error)
+        return [
+            Display(index=0, bounds=Rect(0, 0, 1440, 900), is_main=True),
+            Display(index=1, bounds=Rect(1440, 0, 1920, 1080)),
+        ]
+
+    def set_frame(self, window, rect):
+        self.window = rect
+
+    def frame(self, window):
+        return self.window
+
+
+class BackendWindowMoverTests(unittest.TestCase):
+    def test_missing_permission_is_a_failed_result(self) -> None:
+        result = BackendWindowMover(FakeMoveBackend(trusted=False)).move_focused_window(1)
+        self.assertEqual(result.status, "failed")
+        self.assertIn("Accessibility permission", result.detail)
+
+    def test_full_screen_window_is_not_moved(self) -> None:
+        backend = FakeMoveBackend(full_screen=True)
+        result = BackendWindowMover(backend).move_focused_window(1)
+        self.assertEqual(result.status, "failed")
+        self.assertIn("full screen", result.detail)
+        self.assertEqual(backend.window, Rect(100, 100, 400, 300))
+
+    def test_display_lookup_error_is_a_failed_result(self) -> None:
+        backend = FakeMoveBackend(displays_error="No active displays were reported by Quartz")
+        result = BackendWindowMover(backend).move_focused_window(1)
+        self.assertEqual(result.status, "failed")
+        self.assertIn("No active displays", result.detail)
 
 
 if __name__ == "__main__":

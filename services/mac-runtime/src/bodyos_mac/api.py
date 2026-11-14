@@ -260,16 +260,21 @@ def create_app(
             move_results.popitem(last=False)
 
     async def run_window_move(device_id: str, event_id: str, direction: int) -> None:
-        result = await dispatcher.move_for_step(direction)
-        record_move_result(
-            (device_id, event_id),
-            MoveResultStatus(
+        # Whatever goes wrong, the result must leave "executing".
+        try:
+            result = await dispatcher.move_for_step(direction)
+            status = MoveResultStatus(
                 status=result.status, event_id=event_id, device_id=device_id,
                 direction=direction, title=result.title,
                 source_display=result.source_display,
                 target_display=result.target_display, detail=result.detail,
-            ),
-        )
+            )
+        except Exception as error:
+            status = MoveResultStatus(
+                status="failed", event_id=event_id, device_id=device_id,
+                direction=direction, detail=f"The window move failed: {error}",
+            )
+        record_move_result((device_id, event_id), status)
 
     def schedule_window_move(
         background: BackgroundTasks, device_id: str, event_id: str, direction: int,
@@ -316,11 +321,17 @@ def create_app(
                 raise HTTPException(409, "Idempotency-Key was already used for a different band payload")
             device.last_seen_at = datetime.now(timezone.utc)
             return previous["response"]
+        # Demo 1: a swipe (step) moves the focused window; toggle/select do not.
+        # A keyed step is claimed in storage first, so a retry that arrives
+        # after an API restart (when the buffer above is empty) is accepted
+        # again but does not move the window a second time.
+        moves = isinstance(event, StepInput) and background is not None
+        if moves and idempotency_key:
+            moves = await asyncio.to_thread(commands.claim_step, device_id, event_id)
         response = GestureStatus(event_id=event_id, device_id=device_id, received_at=datetime.now(timezone.utc))
         remember_band_event(key, payload, response)
         device.last_seen_at = response.received_at
-        # Demo 1: a swipe (step) moves the focused window; toggle/select do not.
-        if isinstance(event, StepInput) and background is not None:
+        if moves:
             schedule_window_move(background, device_id, event_id, event.direction)
         return response
 
