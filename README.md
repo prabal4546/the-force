@@ -1,6 +1,6 @@
-# BodyOS Demo
+# The Force
 
-BodyOS is a local-first demo of one interaction grammar:
+The Force is a local-first demo of one interaction grammar:
 
 ```text
 LOOK -> GRAB -> LOOK -> THROW
@@ -53,6 +53,24 @@ runtime bridges Vexo gestures and performs Mac-only window operations.
    xcodegen generate
    open BodyOS.xcodeproj
    ```
+
+6. In the app, use `127.0.0.1` when running in the simulator. On a physical
+   iPhone, enter the Mac's LAN IP, then tap **Connect Mac**.
+
+## Integrated smoke test
+
+Run `make mac-sim`, connect the iPhone shell, and exercise the Mac route:
+
+1. Select **Mac**, then trigger **GRAB** in the app or type `g` in the Mac
+   simulator. The runtime captures a window token.
+2. Select **External Display**, then trigger **THROW** or type `t`. The same
+   token is sent back and the runtime reports that the window moved.
+3. Select **Blue Person**, trigger **GRAB**, select **Gimbal**, and trigger
+   **THROW** to exercise the mocked DockKit route.
+
+The event log in the iPhone shell shows every coordinator transition and
+hardware command. This gives all four owners one shared integration surface
+while the Mentra and DockKit adapters are replaced with real hardware.
 
 The iOS shell contains manual target and gesture controls. Keep these controls
 working even after real hardware is connected; they are the integration and

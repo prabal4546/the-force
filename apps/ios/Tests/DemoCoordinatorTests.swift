@@ -30,4 +30,14 @@ final class DemoCoordinatorTests: XCTestCase {
         }
         XCTAssertEqual(person, .personBlue)
     }
+
+    func testFailureStopsTheCurrentFlow() {
+        var coordinator = DemoCoordinator()
+
+        _ = coordinator.handle(.gesture(.grab))
+        let commands = coordinator.handle(.failure("Mac disconnected"))
+
+        XCTAssertTrue(commands.isEmpty)
+        XCTAssertEqual(coordinator.state, .failed("Mac disconnected"))
+    }
 }

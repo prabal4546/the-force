@@ -70,6 +70,7 @@ enum ProductEvent: Sendable {
     case windowCaptured(token: String)
     case windowMoveFinished(success: Bool)
     case trackingChanged(person: TargetID, state: TrackingState)
+    case failure(String)
 }
 
 enum CapturePurpose: Sendable {

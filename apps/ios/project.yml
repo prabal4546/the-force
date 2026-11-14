@@ -17,11 +17,13 @@ targets:
     info:
       path: BodyOSApp/Info.plist
       properties:
-        CFBundleDisplayName: BodyOS
+        CFBundleDisplayName: The Force
         UILaunchScreen: {}
-        NSBluetoothAlwaysUsageDescription: "BodyOS connects to Mentra Live smart glasses."
-        NSCameraUsageDescription: "BodyOS uses camera frames to identify and follow the selected demo target."
-        NSLocalNetworkUsageDescription: "BodyOS exchanges demo events and photos with devices on the private local network."
+        NSBluetoothAlwaysUsageDescription: "The Force connects to Mentra Live smart glasses."
+        NSCameraUsageDescription: "The Force uses camera frames to identify and follow the selected demo target."
+        NSLocalNetworkUsageDescription: "The Force exchanges demo events and photos with devices on the private local network."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         UIBackgroundModes:
           - bluetooth-central
         UISupportedInterfaceOrientations:

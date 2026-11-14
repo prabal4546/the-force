@@ -10,4 +10,7 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 apps/ios/BodyOS.xcodeproj/
+apps/ios/BodyOSApp/Info.plist
+services/mac-runtime/build/
+services/mac-runtime/src/*.egg-info/
 vendor/vexo-open-kit/.git/
