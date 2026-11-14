@@ -47,8 +47,8 @@ test('calibration finds gravity, the axes, the gyro bias and the flick strength'
   assert.equal(CAL.twistAxis, 'gx');
   assert.equal(CAL.flickAxis, 'gz');
   assert.ok(angleBetween(CAL.gravity, [0, 0, 1]) < 1);
-  assert.equal(CAL.twistSign, 1);
-  assert.equal(CAL.flickSign, 1);
+  assert.ok(CAL.twistVec[0] > 0.99, 'twist direction is +x: clockwise first');
+  assert.ok(CAL.flickVec[2] > 0.99, 'flick direction is +z: right first');
   assert.ok(Math.abs(CAL.bias.gx) < 1);
   assert.ok(CAL.flickPeak > 450 && CAL.flickPeak <= 500);
 });
@@ -151,7 +151,7 @@ test('flick the other way gives direction -1', () => {
   assert.deepEqual(run([...hold(0, 300), ...flick(300, 80, -500), ...hold(380, 300)]), [{ type: 'step', direction: -1 }]);
 });
 
-test('a sweep longer than 200 ms is not a flick, and says why', () => {
+test('a sweep of 300 ms or more is not a flick, and says why', () => {
   const detector = createDetector(CAL);
   assert.deepEqual(run([...hold(0, 300), ...flick(300, 300, 300), ...hold(600, 300)], detector), []);
   assert.match(detector.state.missedFlick, /too long: 300 ms/);
@@ -208,4 +208,38 @@ test('a twist ends with a cooldown: a flick right after it is dropped, a later o
   assert.equal(run([...hold(0, 500), ...turn(500, 0, 35, 100), ...turn(850, 35, 0, 100), ...hold(1200, 100)], detector).length, 2);
   assert.deepEqual(run([...flick(1300, 100, 400), ...hold(1400, 500)], detector), []);
   assert.deepEqual(run([...flick(1900, 100, 400), ...hold(2000, 100)], detector), [{ type: 'step', direction: 1 }]);
+});
+
+/** The same motion as seen by a band that sits turned on the wrist: every reading rotated. */
+function turned(list) {
+  const a = 35 * RAD, b = 20 * RAD;                // 35 degrees about z, then 20 about x
+  const rot = (v) => {
+    const x1 = v[0] * Math.cos(a) - v[1] * Math.sin(a), y1 = v[0] * Math.sin(a) + v[1] * Math.cos(a);
+    return [x1, y1 * Math.cos(b) - v[2] * Math.sin(b), y1 * Math.sin(b) + v[2] * Math.cos(b)];
+  };
+  return list.map((s) => {
+    const acc = rot([s.ax, s.ay, s.az]), gyr = rot([s.gx, s.gy, s.gz]);
+    return { t: s.t, ax: acc[0], ay: acc[1], az: acc[2], gx: gyr[0], gy: gyr[1], gz: gyr[2] };
+  });
+}
+
+test('a band that sits crooked on the wrist: twist and flick are still told apart', () => {
+  const cal = computeCalibration(turned(hold(0, 2000)), turned(wrist(0, 2000, swing(40))), turned(flickPose(500)));
+  const twist = run(turned([...hold(0, 500), ...turn(500, 0, 65, 130), ...turn(1000, 65, 0, 130), ...hold(1500, 800)]), createDetector(cal));
+  assert.deepEqual(twist, adjusts(4, 0.05));
+  const other = run(turned([...hold(0, 500), ...turn(500, 0, -50, 100), ...turn(1000, -50, 0, 100), ...hold(1500, 800)]), createDetector(cal));
+  assert.deepEqual(other, adjusts(3, -0.05));
+  assert.deepEqual(run(turned([...hold(0, 300), ...flick(300, 100, 400), ...hold(400, 600)]), createDetector(cal)), [{ type: 'step', direction: 1 }]);
+  assert.deepEqual(run(turned([...hold(0, 300), ...flick(300, 100, -400), ...hold(400, 600)]), createDetector(cal)), [{ type: 'step', direction: -1 }]);
+});
+
+test('a flick of 250 ms above the threshold still counts', () => {
+  assert.deepEqual(run([...hold(0, 300), ...flick(300, 250, 400), ...hold(550, 600)]), [{ type: 'step', direction: 1 }]);
+});
+
+test('a twist that is not counted says why', () => {
+  const detector = createDetector(CAL);
+  const noisy = wrist(500, 500, (s) => 100 * s, () => ({ gz: 200 }));          // turning with more flick than twist in it
+  run([...hold(0, 500), ...noisy, ...hold(1000, 300, 50)], detector);
+  assert.equal(detector.state.missedTwist, 'the flick axis was stronger');
 });

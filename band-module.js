@@ -135,6 +135,7 @@ export function getState() {
     angle: d ? d.angle : null,
     twisting: d ? d.twisting : false,
     missedFlick: d ? d.missedFlick : null,
+    missedTwist: d ? d.missedTwist : null,
     roll: d ? d.roll : null,
     twistRate: d ? d.twistRate : 0,
     flickRate: d ? d.flickRate : 0,
@@ -192,8 +193,8 @@ export function pushToTalk(on) {
 function loadCalibration() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    // Older saves lack rollSign: calibrate again.
-    return saved && saved.twistAxis && saved.flickAxis && saved.rollSign && Array.isArray(saved.gravity) ? saved : null;
+    // Older saves lack the axis directions: calibrate again.
+    return saved && Array.isArray(saved.twistVec) && Array.isArray(saved.flickVec) && saved.rollSign && Array.isArray(saved.gravity) ? saved : null;
   } catch { return null; }                         // no storage (tests) or a broken entry
 }
 

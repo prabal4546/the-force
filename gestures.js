@@ -35,8 +35,8 @@ export const CONFIG = {
   flickMinDps: 250,         // the spike must exceed this ...
   flickPeakShare: 0.5,      // ... or this share of the wearer's calibrated flick, if that is less
   flickFloorDps: 150,       // but never less than this
-  flickMaxMs: 200,          // and must be shorter than this
-  flickDominance: 1.5,      // flick axis at least this many times the twist axis ("twist-free")
+  flickMaxMs: 300,          // and must be shorter than this (above the threshold)
+  flickDominance: 1.3,      // flick axis at least this many times the twist axis ("twist-free")
   peakMemoryMs: 120,        // how long a peak is remembered when comparing the two axes
 
   // Taps
@@ -101,11 +101,58 @@ export function gyroEnergy(samples) {
   return energy;
 }
 
-/** Sign of the first clear swing on one axis: +1 or -1. */
-export function firstSwingSign(samples, axis, threshold) {
-  const first = samples.find((s) => Math.abs(s[axis]) >= threshold);
-  return first && first[axis] < 0 ? -1 : 1;
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const wrap = (degrees) => ((degrees + 540) % 360) - 180;          // into -180..180
+const NO_BIAS = { gx: 0, gy: 0, gz: 0 };
+
+/** The gyro reading as a vector, without the sensor's resting offset. */
+function gyro(sample, bias = NO_BIAS) {
+  return [sample.gx - bias.gx, sample.gy - bias.gy, sample.gz - bias.gz];
 }
+
+/** Turning speed about one direction, deg/s. */
+export function rateAbout(sample, axis, bias = NO_BIAS) {
+  return dot(gyro(sample, bias), axis);
+}
+
+/**
+ * The direction a recording turned about most, as a unit vector: the band rarely sits
+ * square on the wrist, so a twist shows on all three gyro axes at once. `without` is a
+ * direction to leave out first (the twist axis, when looking for the flick axis).
+ */
+export function mainAxis(samples, bias = NO_BIAS, without = null) {
+  const c = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];     // how the three gyro axes vary together
+  for (const s of samples) {
+    let w = gyro(s, bias);
+    if (without) { const along = dot(w, without); w = w.map((v, i) => v - along * without[i]); }
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) c[i][j] += w[i] * w[j];
+  }
+  const strongest = [0, 1, 2].reduce((best, i) => (c[i][i] > c[best][best] ? i : best));
+  let axis = [0, 0, 0];
+  axis[strongest] = 1;
+  for (let n = 0; n < 40; n++) axis = unit(c.map((row) => dot(row, axis)));   // settles on the main direction
+  return axis;
+}
+
+/** RMS turning speed about a direction over a recording, deg/s. */
+function energyAbout(samples, axis, bias = NO_BIAS, without = null) {
+  let sum = 0;
+  for (const s of samples) {
+    let w = gyro(s, bias);
+    if (without) { const along = dot(w, without); w = w.map((v, i) => v - along * without[i]); }
+    sum += dot(w, axis) ** 2;
+  }
+  return samples.length ? Math.sqrt(sum / samples.length) : 0;
+}
+
+/** Point the axis so that the first clear swing of the recording is positive. */
+function firstSwingPositive(samples, axis, bias, threshold) {
+  const first = samples.find((s) => Math.abs(rateAbout(s, axis, bias)) >= threshold);
+  return first && rateAbout(first, axis, bias) < 0 ? axis.map((v) => -v) : axis;
+}
+
+const letter = (axis) => GYRO[[0, 1, 2].reduce((best, i) => (Math.abs(axis[i]) > Math.abs(axis[best]) ? i : best))];
 
 /**
  * Is one recorded calibration pose usable? Returns null when it is, or a sentence saying
@@ -114,67 +161,54 @@ export function firstSwingSign(samples, axis, threshold) {
  */
 export function checkPose(kind, samples, poses = {}, config = CONFIG) {
   if (samples.length < 10) return 'No motion arrived from the band. Is it still connected?';
-  const energy = gyroEnergy(samples);
-  const strongest = GYRO.reduce((best, axis) => (energy[axis] > energy[best] ? axis : best));
+  const moved = energyAbout(samples, mainAxis(samples));
   if (kind === 'level') {
-    return energy[strongest] > config.holdMaxDps ? 'Your arm was moving. Hold it still for the whole 2 seconds.' : null;
+    return moved > config.holdMaxDps ? 'Your arm was moving. Hold it still for the whole 2 seconds.' : null;
   }
-  if (energy[strongest] < config.minPoseDps) {
+  if (moved < config.minPoseDps) {
     return kind === 'twist' ? 'That hardly moved. Turn your wrist like a doorknob, back and forth, the whole time.'
       : 'That hardly moved. Flick your hand side to side the whole time.';
   }
   if (kind === 'flick' && poses.twist) {
-    const twistAxis = strongestAxis(poses.twist);
-    const rest = GYRO.filter((axis) => axis !== twistAxis);
-    if (Math.max(energy[rest[0]], energy[rest[1]]) < config.minPoseDps) {
+    const twistAxis = mainAxis(poses.twist);
+    if (energyAbout(samples, mainAxis(samples, NO_BIAS, twistAxis), NO_BIAS, twistAxis) < config.minPoseDps) {
       return 'That looked like the twist again. Keep your forearm still and wave your hand left and right.';
     }
   }
   return null;
 }
 
-function strongestAxis(samples) {
-  const energy = gyroEnergy(samples);
-  return GYRO.reduce((best, axis) => (energy[axis] > energy[best] ? axis : best));
-}
-
 /**
  * Turn the three recorded poses into a calibration.
- * The person starts the twist clockwise and the flick to the right, so the first swing
- * of each recording fixes the sign of "clockwise" and "right".
+ * The twist axis is the direction the twist pose turned about; the flick axis is the main
+ * direction of the flick pose once the twist direction is taken out, so the two never
+ * overlap. The person starts the twist clockwise and the flick to the right: the first
+ * swing of each recording fixes which way is positive.
  */
 export function computeCalibration(level, twist, flick, config = CONFIG) {
   if (level.length < 10 || twist.length < 10 || flick.length < 10) {
     throw new Error('Too few motion samples were recorded. Is the band still connected?');
   }
-  const twistEnergy = gyroEnergy(twist);
-  const twistAxis = GYRO.reduce((best, axis) => (twistEnergy[axis] > twistEnergy[best] ? axis : best));
-  if (twistEnergy[twistAxis] < config.minPoseDps) {
-    throw new Error('The twist pose hardly moved. Turn your wrist like a doorknob for the whole 2 seconds.');
-  }
-  const flickEnergy = gyroEnergy(flick);
-  const rest = GYRO.filter((axis) => axis !== twistAxis);
-  const flickAxis = flickEnergy[rest[0]] >= flickEnergy[rest[1]] ? rest[0] : rest[1];
-  if (flickEnergy[flickAxis] < config.minPoseDps) {
-    throw new Error('The flick pose hardly moved. Flick your hand side to side for the whole 2 seconds.');
-  }
   const gravity = meanGravity(level);
   const bias = {};                                 // what the gyro reads while the arm is still
   for (const axis of GYRO) bias[axis] = level.reduce((sum, s) => sum + s[axis], 0) / level.length;
-  const calibration = {
-    gravity,
-    bias,
-    twistAxis,
-    flickAxis,
-    twistSign: firstSwingSign(twist, twistAxis, config.swingSignDps),
-    flickSign: firstSwingSign(flick, flickAxis, config.swingSignDps),
-    rollSign: rollDirection(twist, twistAxis, gravity),
-    flickPeak: percentile(flick.map((s) => Math.abs(s[flickAxis] - bias[flickAxis])), 0.95),
-  };
+
+  let twistVec = mainAxis(twist, bias);
+  if (energyAbout(twist, twistVec, bias) < config.minPoseDps) {
+    throw new Error('The twist pose hardly moved. Turn your wrist like a doorknob for the whole 2 seconds.');
+  }
+  twistVec = firstSwingPositive(twist, twistVec, bias, config.swingSignDps);
+  let flickVec = mainAxis(flick, bias, twistVec);
+  if (energyAbout(flick, flickVec, bias) < config.minPoseDps) {
+    throw new Error('The flick pose hardly moved. Flick your hand side to side for the whole 2 seconds.');
+  }
+  flickVec = firstSwingPositive(flick, flickVec, bias, config.swingSignDps);
+
+  const calibration = { gravity, bias, twistVec, flickVec, twistAxis: letter(twistVec), flickAxis: letter(flickVec) };
+  calibration.rollSign = rollDirection(twist, calibration);
+  calibration.flickPeak = percentile(flick.map((s) => Math.abs(rateAbout(s, flickVec, bias))), 0.95);
   return calibration;
 }
-
-const wrap = (degrees) => ((degrees + 540) % 360) - 180;          // into -180..180
 
 function percentile(values, share) {
   const sorted = [...values].sort((x, y) => x - y);
@@ -185,23 +219,25 @@ function percentile(values, share) {
  * Wrist roll about the forearm (twist) axis as gravity shows it, in degrees from the level
  * pose. Drift-free but shaky while the hand moves. Null when gravity lies along the forearm.
  */
-export function gravityRoll(accel, twistAxis, levelGravity) {
-  const t = GYRO.indexOf(twistAxis), p = (t + 1) % 3, q = (t + 2) % 3;
-  if (Math.hypot(accel[p], accel[q]) < 0.4) return null;
-  return wrap((Math.atan2(accel[q], accel[p]) - Math.atan2(levelGravity[q], levelGravity[p])) * DEG);
+export function gravityRoll(accel, calibration) {
+  const t = calibration.twistVec, g = calibration.gravity;
+  const along = dot(g, t);
+  const p = unit(g.map((v, i) => v - along * t[i]));   // level gravity, seen across the forearm: roll 0
+  const q = cross(t, p);
+  const x = dot(accel, p), y = dot(accel, q);
+  return Math.hypot(x, y) < 0.4 ? null : Math.atan2(y, x) * DEG;
 }
 
-/** +1 when the gyro's twist axis and gravityRoll turn the same way, -1 when opposite. */
-function rollDirection(twist, twistAxis, levelGravity) {
+/** +1 when turning clockwise makes gravityRoll grow, -1 when it makes it shrink. */
+function rollDirection(twist, calibration) {
   let agreement = 0;
   const gap = 5;                                   // compare over 5 samples: steadier than one
+  const rolls = twist.map((s) => gravityRoll([s.ax, s.ay, s.az], calibration));
   for (let i = gap; i < twist.length; i++) {
-    const now = gravityRoll(ACCEL.map((k) => twist[i][k]), twistAxis, levelGravity);
-    const before = gravityRoll(ACCEL.map((k) => twist[i - gap][k]), twistAxis, levelGravity);
-    if (now === null || before === null) continue;
+    if (rolls[i] === null || rolls[i - gap] === null) continue;
     let turned = 0;
-    for (let j = i - gap + 1; j <= i; j++) turned += twist[j][twistAxis];
-    agreement += wrap(now - before) * turned;
+    for (let j = i - gap + 1; j <= i; j++) turned += rateAbout(twist[j], calibration.twistVec, calibration.bias);
+    agreement += wrap(rolls[i] - rolls[i - gap]) * turned;
   }
   return agreement < 0 ? -1 : 1;
 }
@@ -213,15 +249,14 @@ export function flickThreshold(calibration, config = CONFIG) {
 }
 
 /** Forearm elevation in degrees: how far gravity leans along the twist (forearm) axis. */
-function elevation(gravity, twistAxis) {
-  const along = unit(gravity)[GYRO.indexOf(twistAxis)];
-  return Math.asin(Math.max(-1, Math.min(1, along))) * DEG;
+function elevation(gravity, twistVec) {
+  return Math.asin(Math.max(-1, Math.min(1, dot(unit(gravity), twistVec)))) * DEG;
 }
 
 /** How far the arm is from the level pose, in degrees. */
 export function clutchAngle(gravity, calibration, config = CONFIG) {
   if (!config.clutchIgnoresTwist) return angleBetween(gravity, calibration.gravity);
-  return Math.abs(elevation(gravity, calibration.twistAxis) - elevation(calibration.gravity, calibration.twistAxis));
+  return Math.abs(elevation(gravity, calibration.twistVec) - elevation(calibration.gravity, calibration.twistVec));
 }
 
 /**
@@ -239,9 +274,9 @@ export function clutchAngle(gravity, calibration, config = CONFIG) {
  * - One action per motion, then a cooldown.
  */
 export function createDetector(calibration, config = CONFIG) {
-  const bias = calibration.bias || { gx: 0, gy: 0, gz: 0 };
+  const bias = calibration.bias || NO_BIAS;
   const flickMin = flickThreshold(calibration, config);
-  const cw = (calibration.rollSign || 1) * calibration.twistSign;   // turns the tracked angle clockwise-positive
+  const cw = calibration.rollSign || 1;            // turns the tracked angle clockwise-positive
   let gravity = null;          // smoothed gravity estimate, for the clutch
   let roll = null;             // wrist angle in gravityRoll's direction, degrees
   let zero = 0;                // the resting angle twists are measured from (clockwise-positive)
@@ -256,7 +291,7 @@ export function createDetector(calibration, config = CONFIG) {
   let peakFlick = 0;           // recent peaks on the two axes, fading
   let peakTwist = 0;
   let toggleAt = null;         // a held-back toggle fires at this time
-  const state = { clutch: false, angle: null, twisting: false, roll: 0, missedFlick: null, twistRate: 0, flickRate: 0, flickMin };
+  const state = { clutch: false, angle: null, twisting: false, roll: 0, missedFlick: null, missedTwist: null, twistRate: 0, flickRate: 0, flickMin };
 
   function endTwist(t) {
     if (twist && twist.steps > 0) {
@@ -278,15 +313,15 @@ export function createDetector(calibration, config = CONFIG) {
     const dt = lastT === null ? 0 : Math.max(0, Math.min(0.05, (s.t - lastT) / 1000));
     lastT = s.t;
     const accel = [s.ax, s.ay, s.az];
-    const twistRate = (s[calibration.twistAxis] - bias[calibration.twistAxis]) * calibration.twistSign;   // clockwise-positive
-    const flickRate = (s[calibration.flickAxis] - bias[calibration.flickAxis]) * calibration.flickSign;   // right-positive
+    const twistRate = rateAbout(s, calibration.twistVec, bias);   // clockwise-positive
+    const flickRate = rateAbout(s, calibration.flickVec, bias);   // right-positive
 
     gravity = gravity === null ? accel : gravity.map((g, i) => g + config.gravitySmoothing * (accel[i] - g));
     state.angle = clutchAngle(gravity, calibration, config);
     state.clutch = state.angle <= config.clutchDegrees;
 
     // Wrist angle: integrate the gyro, and lean on gravity while the hand is not being shaken.
-    const seen = gravityRoll(accel, calibration.twistAxis, calibration.gravity);
+    const seen = gravityRoll(accel, calibration);
     if (roll === null) roll = seen === null ? 0 : seen;
     else {
       roll = wrap(roll + twistRate * cw * dt);
@@ -317,7 +352,10 @@ export function createDetector(calibration, config = CONFIG) {
         } else {
           spike.flick = Math.max(spike.flick, Math.abs(flickRate));
           spike.twist = Math.max(spike.twist, Math.abs(twistRate));
-          if (Math.abs(flickRate) < flickMin) {
+          if (spike.twist > spike.flick) {               // the twist axis took over: this is a twist
+            state.missedFlick = `twist in it: flick ${Math.round(spike.flick)}, twist ${Math.round(spike.twist)} deg/s`;
+            spike = null;
+          } else if (Math.abs(flickRate) < flickMin) {
             const ms = s.t - spike.start;
             if (ms >= config.flickMaxMs) state.missedFlick = `too long: ${Math.round(ms)} ms`;
             else if (spike.flick < config.flickDominance * spike.twist) {
@@ -337,10 +375,14 @@ export function createDetector(calibration, config = CONFIG) {
       if (!twist) {
         const side = Math.sign(away);
         if (mayRest) rest(angle);
-        else if (spike === null && s.t >= cooldownUntil && peakTwist >= peakFlick
-          && Math.abs(away) >= config.twistStepDegrees && Math.abs(twistRate) >= config.twistMinDps
-          && Math.sign(twistRate) === side && !(s.t < returnUntil && side === returnSide)) {
-          twist = { side, steps: counted.side === side ? counted.steps : 0, lastMove: s.t };
+        else if (Math.abs(away) >= config.twistStepDegrees && Math.abs(twistRate) >= config.twistMinDps && Math.sign(twistRate) === side) {
+          // Turned far enough, fast enough. Start a twist, or say what stands in the way.
+          if (spike !== null || peakTwist < peakFlick) state.missedTwist = 'the flick axis was stronger';
+          else if (s.t < returnUntil && side === returnSide) state.missedTwist = 'counted as turning back after the last twist';
+          else {
+            twist = { side, steps: counted.side === side ? counted.steps : 0, lastMove: s.t };
+            state.missedTwist = null;
+          }
         }
       }
       if (twist) {
