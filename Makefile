@@ -1,7 +1,7 @@
 PYTHON ?= python3
 MAC_ROOT := services/mac-runtime
 
-.PHONY: check mac-setup mac-sim
+.PHONY: check mac-setup mac-sim api
 
 check:
 	$(PYTHON) scripts/check_repo.py
@@ -13,3 +13,6 @@ mac-setup:
 
 mac-sim:
 	PYTHONPATH=$(MAC_ROOT)/src $(PYTHON) -m bodyos_mac.main --simulate
+
+api:
+	PYTHONPATH=$(MAC_ROOT)/src $(PYTHON) -m bodyos_mac.api

@@ -9,7 +9,12 @@ description = "Local Vexo and macOS window bridge for the BodyOS demo"
 requires-python = ">=3.9"
 dependencies = [
   "websockets>=14,<16",
-  "bleak>=0.22,<1"
+  "bleak>=0.22,<1",
+  "fastapi>=0.115,<1",
+  "pydantic>=2.9,<3",
+  "uvicorn>=0.30,<1",
+  "python-multipart>=0.0.20,<1",
+  "pillow>=10,<13"
 ]
 
 [project.optional-dependencies]
@@ -17,10 +22,11 @@ mac = [
   "pyobjc-framework-Cocoa>=10,<12",
   "pyobjc-framework-Quartz>=10,<12"
 ]
-dev = []
+dev = ["httpx>=0.27,<1"]
 
 [project.scripts]
 bodyos-mac = "bodyos_mac.main:main"
+bodyos-api = "bodyos_mac.api:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,5 +1,28 @@
 # BodyOS Demo
 
+## Device input API (current API branch)
+
+The Python API accepts device registration, band events, and glasses photos.
+It is independent of the older mocked iPhone-coordinator flow below. It does not
+connect Bluetooth hardware or execute window movement yet.
+
+```bash
+make mac-setup
+make api PYTHON=.venv/bin/python
+```
+
+Open `http://127.0.0.1:8000/docs` for request/response schemas and interactive
+examples. See [`docs/api.md`](docs/api.md) for the three input contracts,
+device status, photo retrieval, LAN setup, and client examples.
+The current teammate payloads use `POST /v1/band/events?device_id=...` without
+renaming `type`, `delta`, `direction`, or `text`. See
+[`docs/sdk-compatibility.md`](docs/sdk-compatibility.md) for SDK capabilities,
+simulator coverage, and differences from the remote target specification.
+
+Run `make check PYTHON=.venv/bin/python` after installing the dependencies.
+
+## Earlier demo skeleton
+
 BodyOS is a local-first demo of one interaction grammar:
 
 ```text
