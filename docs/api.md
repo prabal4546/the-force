@@ -93,9 +93,11 @@ The JSON body is the teammate's original payload, unchanged:
 
 The updated gesture contract contains only `step`, `toggle`, and `select`.
 The former `adjust` event is no longer accepted and returns **422**.
-`direction` describes physical swipe direction, not an implicit previous/next or
-window movement command. The hub owns that business mapping. Voice input remains
-unchanged.
+`direction` describes physical swipe direction. At the transport level it is not
+an implicit previous/next command; the Demo 1 window mapping is applied by the
+Mac runtime's dispatcher (see "Demo 1 window move" below), not by the band
+adapter. `toggle` and `select` are accepted but drive no window action. Voice
+input remains unchanged.
 
 The `device_id` query is adapter configuration, not an invented SDK event field.
 No client timestamp, confidence, or event ID is required. The server generates an
@@ -121,9 +123,57 @@ Response: **202**
 }
 ```
 
-`accepted` means buffered, not executed: no timer starts, target is selected,
-speech plays, or window moves. The newest 1000 band events are retained in memory.
-This endpoint does not yet publish events to the older WebSocket coordinator.
+`accepted` means the event was received and buffered; it does not itself mean a
+window finished moving. The newest 1000 band events are retained in memory. This
+endpoint does not publish events to the older WebSocket coordinator.
+
+### Demo 1 window move
+
+For a `step` event, acceptance also dispatches a Demo 1 window move: the focused
+window moves to the display on its left (`direction: -1`) or right
+(`direction: 1`). The move runs after the `202`, serialized so two quick swipes
+never overlap. `toggle` and `select` dispatch nothing.
+
+Poll the outcome with the `event_id` from the acceptance response:
+
+`GET /v1/band/events/{event_id}/result?device_id=vexo-76`
+
+```json
+{
+  "status": "completed",
+  "event_id": "event-001",
+  "device_id": "vexo-76",
+  "direction": 1,
+  "title": "Chrome",
+  "source_display": 0,
+  "target_display": 1,
+  "detail": null
+}
+```
+
+`status` is `executing` until the move resolves, then `completed`, `no_target`
+(no display in that direction), or `failed` (`detail` explains why — e.g.
+Accessibility permission is not granted, or the focused window could not move).
+A repeated `step` (same `Idempotency-Key`) does **not** dispatch a second move.
+Keyed steps are also recorded in the command database for a day, so this holds
+when the retry arrives after an API restart: it is accepted with `202` again and
+moves nothing. The result returns **404** before a move is dispatched, for
+non-`step` events, for such a retry after a restart, or once it has aged out of
+the newest-1000 buffer.
+
+Placement rules:
+
+- The target is the nearest display lying wholly to that side in the display
+  arrangement. A display stacked above or below does not count.
+- The window keeps its relative position and lands clear of the menu bar and
+  Dock.
+- A window too large for the target is shrunk to fit. Moving it again restores
+  the size it had, unless it was resized by hand in between.
+- A full-screen window is not moved; the result is `failed` and says so.
+
+The real move needs the pyobjc `mac` extra and macOS Accessibility permission;
+run the API with `--simulate` to exercise this path against an in-memory
+two-display model instead.
 
 `Idempotency-Key` is optional transport metadata. It accepts 1–128 letters,
 numbers, underscores, or hyphens. Within the retained buffer, reuse the same key
@@ -175,6 +225,12 @@ The newest 1000 distinct legacy events are retained separately. Within that buff
 device/event ID with the same payload returns the original response without a new
 event. A conflicting payload returns **409**. Reuse the original event ID and
 timestamp on retry; create a new ID for a genuinely new gesture.
+
+## Durable voice command storage
+
+See [`commands.md`](commands.md) for input/output, history, and retry examples.
+`POST /v1/commands` and a `command` body on `/v1/band/events` share SQLite storage;
+their acceptance response adds `command_id`. Other band inputs remain transient.
 
 ## 3. Send a glasses photo
 
@@ -243,9 +299,9 @@ saving a photo or accepting a gesture.
 
 `GET /healthz` returns `{"status": "ok"}` without requiring hardware or credentials.
 
-Run one API process/worker. Registration, deduplication indexes, and artifact lookup
+Run one API process/worker. Registration, non-command deduplication indexes, and artifact lookup
 metadata are in memory and reset on restart; clients must register again. Photo
 files remain on disk but old artifact URLs are not restored automatically. This
-is an intake API for integration, not durable event processing or a production
+is an intake API for integration, not an action executor or a production
 storage service. The BE never scans for another team's band or silently turns
 registration into a hardware connection attempt.
