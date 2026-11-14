@@ -128,6 +128,9 @@ export const CONFIG = {
   wakeWords: ['vexo', 'vex oh', "vexo's", 'vecto', 'vexa', 'texaco'],   // what "Vexo" may come back as; case does not matter
   wakeTimeoutMs: 3000,      // nothing said this long after the wake word: forget it
   wakeIgnoreMs: 2000,       // a second wake word this soon after one is ignored
+  wakeEndMs: 900,           // a command is over when nothing more is heard for this long. Deepgram marks a
+                            //   sentence finished at every short pause, so its mark alone cuts commands in two
+  wakeMaxMs: 15000,         // a command is sent after this long at the latest, however much is still being said
   wakeStallMs: 2500,        // words heard but never marked finished: send them after this long
   pushToTalkFlushMs: 1200,  // after the spacebar is released, wait this long for the last words
 
