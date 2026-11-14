@@ -12,16 +12,18 @@ from typing import Any, Literal, Optional, Union
 from uuid import uuid4
 import warnings
 
-from fastapi import APIRouter, Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .band_contract import BandEvent, CommandInput
+from .band_contract import BandEvent, CommandInput, StepInput
 from .command_store import CommandConflict, CommandRecord, CommandStorageError, CommandStore
+from .dispatcher import GestureDispatcher
 from .input_guard import DeviceInputGuard
+from .window_controller import SimulatedWindowMover, WindowMoving
 
 
 class DeviceRegistration(BaseModel):
@@ -66,6 +68,23 @@ class CommandStatus(GestureStatus):
     command_id: str
 
 
+class MoveResultStatus(BaseModel):
+    """The window-move outcome for a dispatched ``step`` event.
+
+    ``status`` starts as ``executing`` the moment the swipe is accepted, then
+    settles to ``completed`` / ``no_target`` / ``failed`` once the move resolves.
+    """
+
+    status: Literal["executing", "completed", "no_target", "failed"]
+    event_id: str
+    device_id: str
+    direction: int
+    title: Optional[str] = None
+    source_display: Optional[int] = None
+    target_display: Optional[int] = None
+    detail: Optional[str] = None
+
+
 class PhotoStatus(BaseModel):
     status: Literal["received"] = "received"
     request_id: str
@@ -103,9 +122,13 @@ def create_app(
     command_db: Optional[Path] = None,
     session_token: Optional[str] = None,
     max_upload_bytes: int = 10 * 1024 * 1024,
+    window_mover: Optional[WindowMoving] = None,
 ) -> FastAPI:
     if max_upload_bytes <= 0:
         raise ValueError("max_upload_bytes must be positive")
+    if window_mover is None:
+        window_mover = SimulatedWindowMover()
+    dispatcher = GestureDispatcher(window_mover)
     storage = Path(upload_dir) if upload_dir is not None else Path(os.getenv("BODYOS_UPLOAD_DIR", ".data/photos"))
     token = os.getenv("BODYOS_SESSION_TOKEN", "") if session_token is None else session_token
     commands = CommandStore(command_db if command_db is not None else Path(os.getenv("BODYOS_COMMAND_DB", ".data/commands.sqlite3")))
@@ -123,10 +146,12 @@ def create_app(
     band_event_lock = asyncio.Lock()
     artifacts: dict[str, dict[str, Any]] = {}
     photo_requests: dict[tuple[str, str], str] = {}
+    move_results: OrderedDict[tuple[str, str], MoveResultStatus] = OrderedDict()
     application.state.devices = devices
     application.state.gestures = gestures
     application.state.band_events = band_events
     application.state.artifacts = artifacts
+    application.state.move_results = move_results
     bearer = HTTPBearer(auto_error=False)
 
     @application.exception_handler(CommandStorageError)
@@ -229,8 +254,41 @@ def create_app(
             raise HTTPException(404, "Command not found")
         return record
 
+    def record_move_result(key: tuple[str, str], status: MoveResultStatus) -> None:
+        move_results[key] = status
+        if len(move_results) > 1000:
+            move_results.popitem(last=False)
+
+    async def run_window_move(device_id: str, event_id: str, direction: int) -> None:
+        result = await dispatcher.move_for_step(direction)
+        record_move_result(
+            (device_id, event_id),
+            MoveResultStatus(
+                status=result.status, event_id=event_id, device_id=device_id,
+                direction=direction, title=result.title,
+                source_display=result.source_display,
+                target_display=result.target_display, detail=result.detail,
+            ),
+        )
+
+    def schedule_window_move(
+        background: BackgroundTasks, device_id: str, event_id: str, direction: int,
+    ) -> None:
+        # Mark the move in-flight before the response returns, then run it off
+        # the event loop. Only reached for a freshly accepted step, so a retried
+        # delivery (served from the buffer above) never moves the window twice.
+        record_move_result(
+            (device_id, event_id),
+            MoveResultStatus(
+                status="executing", event_id=event_id,
+                device_id=device_id, direction=direction,
+            ),
+        )
+        background.add_task(run_window_move, device_id, event_id, direction)
+
     @router.post("/band/events", status_code=202, response_model=Union[CommandStatus, GestureStatus])
     async def receive_band_event(
+        background: BackgroundTasks,
         event: BandEvent = Body(..., discriminator="type"),
         device_id: str = Query(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
         idempotency_key: Optional[str] = Header(
@@ -238,10 +296,11 @@ def create_app(
         ),
     ) -> Union[CommandStatus, GestureStatus]:
         async with band_event_lock:
-            return await buffer_band_event(event, device_id, idempotency_key)
+            return await buffer_band_event(event, device_id, idempotency_key, background)
 
     async def buffer_band_event(
         event: BandEvent, device_id: str, idempotency_key: Optional[str],
+        background: Optional[BackgroundTasks] = None,
     ) -> Union[CommandStatus, GestureStatus]:
         if isinstance(event, CommandInput):
             return await accept_command(event, device_id, idempotency_key)
@@ -260,7 +319,20 @@ def create_app(
         response = GestureStatus(event_id=event_id, device_id=device_id, received_at=datetime.now(timezone.utc))
         remember_band_event(key, payload, response)
         device.last_seen_at = response.received_at
+        # Demo 1: a swipe (step) moves the focused window; toggle/select do not.
+        if isinstance(event, StepInput) and background is not None:
+            schedule_window_move(background, device_id, event_id, event.direction)
         return response
+
+    @router.get("/band/events/{event_id}/result", response_model=MoveResultStatus)
+    async def band_event_result(
+        event_id: str,
+        device_id: str = Query(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
+    ) -> MoveResultStatus:
+        status = move_results.get((device_id, event_id))
+        if status is None:
+            raise HTTPException(404, "No window move was dispatched for this event")
+        return status
 
     @router.post("/gestures", status_code=202, response_model=GestureStatus)
     async def receive_gesture(event: GestureInput) -> GestureStatus:
@@ -348,11 +420,20 @@ app = create_app()
 def main() -> None:
     import uvicorn
 
+    from .window_controller import MacOSWindowMover
+
     parser = argparse.ArgumentParser(description="BodyOS device registration and input API")
     parser.add_argument("--host", default=os.getenv("BODYOS_API_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("BODYOS_API_PORT", "8000")))
+    parser.add_argument(
+        "--simulate",
+        action="store_true",
+        help="Use an in-memory window mover instead of moving real macOS windows",
+    )
     arguments = parser.parse_args()
-    uvicorn.run("bodyos_mac.api:app", host=arguments.host, port=arguments.port)
+    mover: WindowMoving = SimulatedWindowMover() if arguments.simulate else MacOSWindowMover()
+    application = create_app(window_mover=mover)
+    uvicorn.run(application, host=arguments.host, port=arguments.port)
 
 
 if __name__ == "__main__":

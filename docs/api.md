@@ -93,9 +93,11 @@ The JSON body is the teammate's original payload, unchanged:
 
 The updated gesture contract contains only `step`, `toggle`, and `select`.
 The former `adjust` event is no longer accepted and returns **422**.
-`direction` describes physical swipe direction, not an implicit previous/next or
-window movement command. The hub owns that business mapping. Voice input remains
-unchanged.
+`direction` describes physical swipe direction. At the transport level it is not
+an implicit previous/next command; the Demo 1 window mapping is applied by the
+Mac runtime's dispatcher (see "Demo 1 window move" below), not by the band
+adapter. `toggle` and `select` are accepted but drive no window action. Voice
+input remains unchanged.
 
 The `device_id` query is adapter configuration, not an invented SDK event field.
 No client timestamp, confidence, or event ID is required. The server generates an
@@ -121,9 +123,44 @@ Response: **202**
 }
 ```
 
-`accepted` means buffered, not executed: no timer starts, target is selected,
-speech plays, or window moves. The newest 1000 band events are retained in memory.
-This endpoint does not yet publish events to the older WebSocket coordinator.
+`accepted` means the event was received and buffered; it does not itself mean a
+window finished moving. The newest 1000 band events are retained in memory. This
+endpoint does not publish events to the older WebSocket coordinator.
+
+### Demo 1 window move
+
+For a `step` event, acceptance also dispatches a Demo 1 window move: the focused
+window moves to the display on its left (`direction: -1`) or right
+(`direction: 1`). The move runs after the `202`, serialized so two quick swipes
+never overlap. `toggle` and `select` dispatch nothing.
+
+Poll the outcome with the `event_id` from the acceptance response:
+
+`GET /v1/band/events/{event_id}/result?device_id=vexo-76`
+
+```json
+{
+  "status": "completed",
+  "event_id": "event-001",
+  "device_id": "vexo-76",
+  "direction": 1,
+  "title": "Chrome",
+  "source_display": 0,
+  "target_display": 1,
+  "detail": null
+}
+```
+
+`status` is `executing` until the move resolves, then `completed`, `no_target`
+(no display in that direction), or `failed` (`detail` explains why — e.g.
+Accessibility permission is not granted, or the focused window could not move).
+A `step` served from the retry buffer (same `Idempotency-Key`) does **not**
+dispatch a second move. The result returns **404** before a move is dispatched,
+for non-`step` events, or once it has aged out of the newest-1000 buffer.
+
+The real move needs the pyobjc `mac` extra and macOS Accessibility permission;
+run the API with `--simulate` to exercise this path against an in-memory
+two-display model instead.
 
 `Idempotency-Key` is optional transport metadata. It accepts 1–128 letters,
 numbers, underscores, or hyphens. Within the retained buffer, reuse the same key
