@@ -15,6 +15,9 @@
   #dial { width: 110px; height: 110px; border: 3px solid #333; border-radius: 50%; position: relative; flex: none; }
   #dial i { position: absolute; left: 50%; top: 6px; width: 4px; height: 49px; margin-left: -2px; background: #06c; transform-origin: 50% 100%; border-radius: 2px; }
   #dial b { position: absolute; left: 0; right: 0; bottom: 14px; text-align: center; font-size: 14px; }
+  #gesture { font-size: 22px; font-weight: 600; min-height: 30px; }
+  #sending { color: #a00; font-weight: 600; min-height: 22px; }
+  input[type=password] { font: inherit; width: 260px; }
   .on { color: #080; font-weight: 600; } .off { color: #a00; }
   #taps { font-family: ui-monospace, monospace; white-space: pre; height: 180px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; }
 </style>
@@ -38,10 +41,25 @@
     <tr><td>Twist axis</td><td id="twistAxis">--</td></tr>
     <tr><td>Flick axis</td><td id="flickAxis">--</td></tr>
     <tr><td>Tap before double-tap</td><td id="tapCheck">--</td></tr>
+    <tr><td>Last flick not counted</td><td id="missedFlick">--</td></tr>
+    <tr><td>Arm lift</td><td id="lift">--</td></tr>
   </table>
 </div>
+<p id="gesture"></p>
 <h3>Outgoing messages</h3>
 <div id="log"></div>
+<p><button id="saveMotion">Save last 10 s of motion</button> (a file for tuning a gesture that is not recognised)</p>
+
+<h2>Voice</h2>
+<p>Raise your wrist towards your mouth and speak; lower it when done.</p>
+<p>
+  <input id="deepgramKey" type="password" placeholder="Deepgram key" autocomplete="off">
+  <button id="forgetKey">Forget key</button> <span id="keyState"></span>
+</p>
+<p>While the band's light is solid blue, everything its microphone hears is sent over the internet to Deepgram.
+   Tell the people near you. The key stays in this tab only (sessionStorage) and is gone when the tab closes.</p>
+<p id="sending"></p>
+<p>Heard: <span id="heard"></span></p>
 
 <h2>Motion</h2>
 <p>Last 10 seconds. Acceleration in g, turning in deg/s.</p>
@@ -102,9 +120,23 @@
 
   // ---- Remote: event log, dial, clutch and axis readouts, calibration ----
   let dial = 0.5;                                    // what the adjust messages add up to, 0..1
+  const logLines = [];                               // newest first: { time, name, json, count, at }
+  function gestureName(message) {
+    if (message.type === 'adjust') return message.delta > 0 ? 'Twist clockwise' : 'Twist counter-clockwise';
+    if (message.type === 'step') return message.direction > 0 ? 'Flick right' : 'Flick left';
+    if (message.type === 'toggle') return 'Tap';
+    if (message.type === 'select') return 'Double-tap';
+    if (message.type === 'command') return 'Voice';
+    return message.type;
+  }
   remote.onEvent((message) => {
     if (message.type === 'adjust') dial = Math.max(0, Math.min(1, dial + message.delta));
-    $('log').textContent = new Date().toLocaleTimeString() + '  ' + JSON.stringify(message) + '\n' + $('log').textContent.slice(0, 4000);
+    const name = gestureName(message), json = JSON.stringify(message), now = Date.now(), top = logLines[0];
+    if (top && message.type === 'adjust' && top.json === json && now - top.at < 600) { top.count += 1; top.at = now; }   // one line per twist
+    else logLines.unshift({ time: new Date().toLocaleTimeString(), name, json, count: 1, at: now });
+    logLines.length = Math.min(logLines.length, 60);
+    $('log').textContent = logLines.map((l) => l.time + '  ' + l.name.padEnd(24) + l.json + (l.count > 1 ? '  x' + l.count : '')).join('\n');
+    $('gesture').textContent = name + (message.type === 'command' ? ': ' + message.text : '');
   });
   remote.onNote((text) => say(text));
 
@@ -123,7 +155,36 @@
     $('flickAxis').textContent = cal ? cal.flickAxis + (cal.flickSign > 0 ? '  (+ is right)' : '  (- is right)') : '--';
     const t = state.tapCheck;
     $('tapCheck').textContent = t.doubleTaps === 0 ? 'double-tap a few times to check' : t.withTapBefore + ' of ' + t.doubleTaps + ' double-taps';
+    $('missedFlick').textContent = state.missedFlick || '--';
+    $('lift').textContent = state.lift === null ? (cal ? 'calibrate again to add the raise pose' : '--')
+      : state.lift.toFixed(0) + ' deg  (microphone above ' + remote.CONFIG.raiseDegrees + ')';
+    $('sending').textContent = state.listening ? "The band's microphone is being sent to Deepgram now. Lower your arm to stop." : '';
+    if (state.heard) $('heard').textContent = state.heard;
+    $('keyState').textContent = state.hasKey ? 'Key set for this tab.' : 'No key: raise to talk is off.';
   }
+
+  // The Deepgram key: typed here, kept in sessionStorage only, handed to the module. Never in a file.
+  const KEY_NAME = 'vexo-deepgram-key';
+  remote.setDeepgramKey(sessionStorage.getItem(KEY_NAME) || '');
+  $('deepgramKey').onchange = () => {
+    const key = $('deepgramKey').value.trim();
+    $('deepgramKey').value = '';                     // out of the field at once
+    if (!key) return;
+    sessionStorage.setItem(KEY_NAME, key);
+    remote.setDeepgramKey(key);
+  };
+  $('forgetKey').onclick = () => { sessionStorage.removeItem(KEY_NAME); remote.setDeepgramKey(''); };
+
+  // The last 10 seconds of raw motion, to save as a file when a gesture needs tuning.
+  const recent = [];
+  $('saveMotion').onclick = () => {
+    const file = new Blob([JSON.stringify({ calibration: remote.getState().calibration, samples: recent })], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(file);
+    link.download = 'band-motion-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 
   const pause = (ms) => new Promise((done) => setTimeout(done, ms));
   async function countdown(text) {                   // time to get into the pose
@@ -138,11 +199,13 @@
   $('calibrate').onclick = async () => {
     $('calibrate').disabled = true;
     try {
-      const level = await pose('1 of 3: hold your arm level, as if reading a watch.', 'Hold still.');
-      const twist = await pose('2 of 3: twist like a doorknob. Start by turning clockwise.', 'Twist back and forth.');
-      const flick = await pose('3 of 3: flick your hand side to side. Start to the right.', 'Flick side to side.');
-      remote.finishCalibration(level, twist, flick);
-      $('prompt').textContent = 'Calibrated and saved.';
+      const level = await pose('1 of 4: hold your arm level, as if reading a watch.', 'Hold still.');
+      const twist = await pose('2 of 4: twist like a doorknob. Start by turning clockwise.', 'Twist back and forth.');
+      const flick = await pose('3 of 4: flick your hand side to side. Start to the right.', 'Flick side to side.');
+      const raise = await pose('4 of 4: raise your wrist to your mouth, as if speaking into it.', 'Hold it there.');
+      const cal = remote.finishCalibration(level, twist, flick, raise);
+      $('prompt').textContent = 'Calibrated and saved. Your raise pose is ' + cal.raiseDegrees.toFixed(0) + ' degrees above level'
+        + (cal.raiseDegrees <= remote.CONFIG.raiseDegrees + 5 ? ': too close to the ' + remote.CONFIG.raiseDegrees + ' needed for the microphone. Raise higher, or lower raiseDegrees in CONFIG.' : '.');
     } catch (e) {
       $('prompt').textContent = e.message + ' Press Calibrate to try again.';
     }
@@ -169,6 +232,8 @@
       say('Connected to ' + band.name + '.');
 
       band.on('motion', (m) => {
+        recent.push({ t: m.t, ax: m.ax, ay: m.ay, az: m.az, gx: m.gx, gy: m.gy, gz: m.gz });
+        if (recent.length > POINTS) recent.shift();
         for (const g of graphs) {
           g.values.push(m[g.name]);
           if (g.values.length > POINTS) g.values.shift();

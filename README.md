@@ -49,8 +49,8 @@ no transport of its own. The maths is in `gestures.js`; every threshold is in `C
 the top of that file.
 
 On the dashboard: double-tap the band, close any other tab that uses it, press **Connect**,
-then **Calibrate** and follow the three prompts (arm level, twist starting clockwise, flick
-starting to the right). The calibration is kept in the browser's localStorage.
+then **Calibrate** and follow the four prompts (arm level, twist starting clockwise, flick
+starting to the right, wrist raised to the mouth). The calibration is kept in the browser's localStorage.
 
 | Gesture | Message |
 |---|---|
@@ -60,6 +60,17 @@ starting to the right). The calibration is kept in the browser's localStorage.
 | Double-tap | `{ "type": "select" }` |
 
 Twist and flick only count while the forearm is within 35 degrees of the level pose.
+
+### Voice
+
+Raise your wrist towards your mouth for 0.3 seconds: the band's microphone turns on (solid
+blue light), gestures pause, and the sound goes to Deepgram (`speech.js`, copied from the
+kit). About a second after you stop speaking, or when you lower your arm, one
+`{ "type": "command", "text": "..." }` is sent. Silence sends nothing.
+
+Paste the team's Deepgram key into the key field on the page. It is kept in that tab's
+sessionStorage only: never put it in a file or a commit. While the light is blue,
+everything the microphone hears goes to Deepgram, so tell the people near you.
 
 Tests (Node 18 or newer, no band needed):
 

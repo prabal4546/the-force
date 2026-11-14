@@ -32,6 +32,12 @@ export const CONFIG = {
   tapDelayMs: 300,          // how long toggle waits for a double-tap to cancel it
   tapCheckMs: 600,          // a tap this close before a double-tap counts as "sent before it"
 
+  // Raise to talk
+  raiseDegrees: 45,         // forearm this far above the level pose ...
+  raiseHoldMs: 300,         // ... for this long turns the microphone on
+  voiceEndMs: 900,          // this long after a finished sentence with nothing new, the command is sent
+  voiceMaxMs: 15000,        // the microphone never stays on longer than this in one raise
+
   // All gestures
   cooldownMs: 500,          // quiet time after each gesture
   flashMs: 120,             // white LED flash on each gesture
@@ -83,7 +89,7 @@ export function firstSwingSign(samples, axis, threshold) {
  * The person starts the twist clockwise and the flick to the right, so the first swing
  * of each recording fixes the sign of "clockwise" and "right".
  */
-export function computeCalibration(level, twist, flick, config = CONFIG) {
+export function computeCalibration(level, twist, flick, raise = null, config = CONFIG) {
   if (level.length < 10 || twist.length < 10 || flick.length < 10) {
     throw new Error('Too few motion samples were recorded. Is the band still connected?');
   }
@@ -98,19 +104,61 @@ export function computeCalibration(level, twist, flick, config = CONFIG) {
   if (flickEnergy[flickAxis] < config.minPoseDps) {
     throw new Error('The flick pose hardly moved. Flick your hand side to side for the whole 2 seconds.');
   }
-  return {
+  const calibration = {
     gravity: meanGravity(level),
     twistAxis,
     flickAxis,
     twistSign: firstSwingSign(twist, twistAxis, config.swingSignDps),
     flickSign: firstSwingSign(flick, flickAxis, config.swingSignDps),
   };
+  if (raise && raise.length >= 10) {               // which way is "up", and how far the raise pose went
+    const lift = elevation(meanGravity(raise), twistAxis) - elevation(calibration.gravity, twistAxis);
+    calibration.raiseSign = lift < 0 ? -1 : 1;
+    calibration.raiseDegrees = Math.abs(lift);
+  }
+  return calibration;
 }
 
 /** Forearm elevation in degrees: how far gravity leans along the twist (forearm) axis. */
 function elevation(gravity, twistAxis) {
   const along = unit(gravity)[GYRO.indexOf(twistAxis)];
   return Math.asin(Math.max(-1, Math.min(1, along))) * DEG;
+}
+
+/** Degrees the forearm is lifted above the level pose (negative: below it, as when the arm hangs). */
+export function liftAngle(gravity, calibration) {
+  const lift = elevation(gravity, calibration.twistAxis) - elevation(calibration.gravity, calibration.twistAxis);
+  return lift * (calibration.raiseSign || 1);
+}
+
+/**
+ * Raise to talk. Feed it every motion sample; it answers 'raise' once the forearm has been
+ * lifted more than raiseDegrees for raiseHoldMs, 'lower' when the arm is level again, and
+ * null the rest of the time. A hanging arm is below level, so it never counts as a raise.
+ */
+export function createRaiseDetector(calibration, config = CONFIG) {
+  let gravity = null;
+  let liftedSince = null;
+  const state = { raised: false, lift: null };
+
+  function update(s) {
+    const accel = [s.ax, s.ay, s.az];
+    gravity = gravity === null ? accel : gravity.map((g, i) => g + config.gravitySmoothing * (accel[i] - g));
+    state.lift = liftAngle(gravity, calibration);
+    if (!state.raised) {
+      if (state.lift <= config.raiseDegrees) { liftedSince = null; return null; }
+      if (liftedSince === null) liftedSince = s.t;
+      if (s.t - liftedSince < config.raiseHoldMs) return null;
+      state.raised = true;
+      return 'raise';
+    }
+    if (Math.abs(state.lift) > config.clutchDegrees) return null;
+    state.raised = false;
+    liftedSince = null;
+    return 'lower';
+  }
+
+  return { update, state };
 }
 
 /** How far the arm is from the level pose, in degrees. */
@@ -135,7 +183,7 @@ export function createDetector(calibration, config = CONFIG) {
   let twisting = false;        // a twist has sent at least one adjust and is not over yet
   let spike = null;            // flick candidate: { start, sign, clean }
   let toggleAt = null;         // a held-back toggle fires at this time
-  const state = { clutch: false, angle: null, twisting: false };
+  const state = { clutch: false, angle: null, twisting: false, missedFlick: null };
 
   function endTwist(t) {
     if (twisting) cooldownUntil = t + config.cooldownMs;
@@ -168,14 +216,19 @@ export function createDetector(calibration, config = CONFIG) {
       if (!twisting) {                                   // flick: a short, twist-free spike
         if (spike === null) {
           if (Math.abs(flick) >= config.flickMinDps && Math.abs(twist) < config.flickMaxTwistDps) {
-            spike = { start: s.t, sign: flick > 0 ? 1 : -1, clean: true };
+            spike = { start: s.t, sign: flick > 0 ? 1 : -1, clean: true, twist: 0 };
           }
         } else {
+          spike.twist = Math.max(spike.twist, Math.abs(twist));
           if (Math.abs(twist) >= config.flickMaxTwistDps) spike.clean = false;
           if (Math.abs(flick) < config.flickMinDps) {
-            if (spike.clean && s.t - spike.start < config.flickMaxMs) {
+            const ms = s.t - spike.start;
+            if (spike.clean && ms < config.flickMaxMs) {
               out.push({ type: 'step', direction: spike.sign });
               cooldownUntil = s.t + config.cooldownMs;
+              state.missedFlick = null;
+            } else {                                      // say why, so thresholds can be tuned
+              state.missedFlick = spike.clean ? `too long: ${Math.round(ms)} ms` : `twist in it: ${Math.round(spike.twist)} deg/s`;
             }
             spike = null;
           }
