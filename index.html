@@ -4,9 +4,9 @@
 <style>
   body { font: 16px system-ui, sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
   button { font: inherit; padding: 6px 14px; }
-  table { border-collapse: collapse; margin: 8px 0; }
-  td { padding: 4px 16px 4px 0; font-variant-numeric: tabular-nums; }
-  td.n { text-align: right; min-width: 80px; font-family: ui-monospace, monospace; }
+  .graph { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+  .graph span { width: 110px; font-family: ui-monospace, monospace; font-size: 14px; }
+  canvas { border: 1px solid #ccc; width: 380px; height: 70px; }
   #taps { font-family: ui-monospace, monospace; white-space: pre; height: 180px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; }
 </style>
 
@@ -19,12 +19,8 @@
 <p>Battery: <b id="battery">--</b></p>
 
 <h2>Motion</h2>
-<table>
-  <tr><td>ax</td><td class="n" id="ax">--</td><td>gx</td><td class="n" id="gx">--</td></tr>
-  <tr><td>ay</td><td class="n" id="ay">--</td><td>gy</td><td class="n" id="gy">--</td></tr>
-  <tr><td>az</td><td class="n" id="az">--</td><td>gz</td><td class="n" id="gz">--</td></tr>
-  <tr><td>(g)</td><td></td><td>(deg/s)</td><td></td></tr>
-</table>
+<p>Last 10 seconds. Acceleration in g, turning in deg/s.</p>
+<div id="graphs"></div>
 
 <h2>Taps</h2>
 <div id="taps"></div>
@@ -41,6 +37,42 @@
   const $ = (id) => document.getElementById(id);
   const say = (text) => { $('status').textContent = text; };
   let band = null;
+
+  // One small graph per motion value, each holding the last 10 seconds.
+  const RATE = 25;                                   // readings a second
+  const POINTS = RATE * 10;
+  const graphs = [['ax', 1.5], ['ay', 1.5], ['az', 1.5], ['gx', 100], ['gy', 100], ['gz', 100]].map(([name, minScale]) => {
+    const row = document.createElement('div');
+    row.className = 'graph';
+    const label = document.createElement('span');
+    const canvas = document.createElement('canvas');
+    canvas.width = 760; canvas.height = 140;         // twice the shown size, for sharp lines
+    row.append(label, canvas);
+    $('graphs').append(row);
+    return { name, minScale, label, canvas, values: [] };
+  });
+
+  function draw() {
+    for (const g of graphs) {
+      const c = g.canvas.getContext('2d'), w = g.canvas.width, h = g.canvas.height;
+      const last = g.values[g.values.length - 1];
+      const scale = Math.max(g.minScale, ...g.values.map(Math.abs));   // the graph spans -scale..+scale
+      g.label.textContent = g.name + ' ' + (last === undefined ? '--' : last.toFixed(g.minScale < 10 ? 2 : 1));
+      c.clearRect(0, 0, w, h);
+      c.strokeStyle = '#ccc'; c.lineWidth = 1;       // the zero line
+      c.beginPath(); c.moveTo(0, h / 2); c.lineTo(w, h / 2); c.stroke();
+      c.strokeStyle = '#06c'; c.lineWidth = 2;
+      c.beginPath();
+      g.values.forEach((v, i) => {
+        const x = w - (g.values.length - 1 - i) * (w / (POINTS - 1));   // newest at the right edge
+        const y = h / 2 - (v / scale) * (h / 2 - 4);
+        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      });
+      c.stroke();
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
 
   function setConnected(on) {
     $('connect').disabled = on;
@@ -60,12 +92,10 @@
       say('Connected to ' + band.name + '.');
 
       band.on('motion', (m) => {
-        $('ax').textContent = m.ax.toFixed(2);
-        $('ay').textContent = m.ay.toFixed(2);
-        $('az').textContent = m.az.toFixed(2);
-        $('gx').textContent = m.gx.toFixed(1);
-        $('gy').textContent = m.gy.toFixed(1);
-        $('gz').textContent = m.gz.toFixed(1);
+        for (const g of graphs) {
+          g.values.push(m[g.name]);
+          if (g.values.length > POINTS) g.values.shift();
+        }
       });
       band.on('tap', () => addTap('tap'));
       band.on('double-tap', () => addTap('double-tap'));
@@ -77,7 +107,7 @@
         say('Disconnected (' + e.reason + ').');
       });
 
-      await band.configure({ motion: 25, events: true, battery: true });
+      await band.configure({ motion: RATE, events: true, battery: true });
     } catch (e) {
       setConnected(false);
       say(e.message);                                // the library's messages say what to do next
