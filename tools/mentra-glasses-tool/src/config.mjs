@@ -1,4 +1,5 @@
 import os from 'node:os';
+import { readBodyosConfig } from './bodyos.mjs';
 
 /** Load .env from the folder the program is started in (environment variables win). */
 export function loadDotEnv() {
@@ -56,5 +57,7 @@ export function readConfig(env = process.env) {
     ingestToken: env.INGEST_TOKEN ?? '',
     // Live feed for the Glasses Viewer app, on this computer only. 0 switches it off.
     livePort: num(env.LIVE_PORT ?? 3001, 'LIVE_PORT'),
+    // Team BodyOS API: every photo is also kept there. Empty URL = off.
+    bodyos: readBodyosConfig(env),
   };
 }

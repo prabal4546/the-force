@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url';
 import { lanAddress, loadDotEnv, readConfig } from './config.mjs';
 import { startLiveFeed } from './live.mjs';
 import { SessionStore } from './store.mjs';
+import { forwardToBodyos } from './bodyos.mjs';
 
 export const MAX_UPLOAD_BYTES = 300 * 1024 * 1024; // a few minutes of 720p video
 
@@ -55,8 +56,9 @@ const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
  * The receiver. Listens on the local network (the glasses must reach it), keeps one folder of
  * photos for this run and one recording folder per video clip.
  */
-export async function createReceiver({ dataDir, port = 8787, host = '0.0.0.0', token = '', live = null, publicHost = lanAddress(), log = console, maxBytes = MAX_UPLOAD_BYTES }) {
+export async function createReceiver({ dataDir, port = 8787, host = '0.0.0.0', token = '', live = null, publicHost = lanAddress(), log = console, maxBytes = MAX_UPLOAD_BYTES, bodyos = null }) {
   const store = new SessionStore(dataDir, 'mentra-app');
+  const forwarder = bodyos?.url ? forwardToBodyos(store, { ...bodyos, log }) : null;
   const sessionId = path.basename(store.dir);
   const served = new Map(); // random id -> { file, type }: only files uploaded in this run are served back
   if (live) {
@@ -151,9 +153,11 @@ export async function createReceiver({ dataDir, port = 8787, host = '0.0.0.0', t
     uploadUrl: `http://${publicHost}:${actualPort}/upload`,
     store,
     sessionId,
+    bodyos: forwarder,
     async close(reason = 'stopped') {
       await new Promise((resolve) => server.close(() => resolve()));
       server.closeAllConnections?.();
+      await forwarder?.drain();
       store.event('session_end', { reason });
       await store.close();
       live?.sessionEnded(sessionId, { reason, photos: store.photoCount });
@@ -170,7 +174,7 @@ async function main() {
   const live = await startLiveFeed(cfg, { mode: 'receiver', uploadUrl: `http://${publicHost}:${port}/upload`, rtmpUrl });
   let receiver;
   try {
-    receiver = await createReceiver({ dataDir: cfg.dataDir, port, token: process.env.UPLOAD_TOKEN ?? '', live, publicHost });
+    receiver = await createReceiver({ dataDir: cfg.dataDir, port, token: process.env.UPLOAD_TOKEN ?? '', live, publicHost, bodyos: cfg.bodyos });
   } catch (err) {
     console.error(err.code === 'EADDRINUSE' ? `Port ${port} is busy (is Mentra's own receiver running?). Set RECEIVER_PORT to another port.` : err.message);
     await live?.close();
@@ -181,6 +185,9 @@ async function main() {
   console.log(`  Media upload URL:  ${receiver.uploadUrl}`);
   console.log(`  Live video (RTMP): ${rtmpUrl}   (run "npm run video" for this)`);
   console.log(`  Saving to:         ${receiver.store.dir}`);
+  console.log(cfg.bodyos.url
+    ? `  Also keeping in:   BodyOS API ${cfg.bodyos.url} (device ${cfg.bodyos.deviceId}): photos only, videos stay in data/video`
+    : '  BodyOS API:        off (set BODYOS_API_URL to keep photos there too)');
   console.log('');
   console.log('In the Mentra example app: Camera screen, turn on "Use cloud server", paste the Media upload URL,');
   console.log('then take photos or record video. The glasses must be on the same Wi-Fi as this computer.');
@@ -188,7 +195,8 @@ async function main() {
   const stop = async () => {
     await receiver.close('stopped');
     await live?.close();
-    console.log(`Stopped. ${receiver.store.photoCount} photos saved.`);
+    const b = receiver.bodyos?.stats;
+    console.log(`Stopped. ${receiver.store.photoCount} photos saved.${b ? ` BodyOS API: ${b.stored} kept, ${b.failed} failed, ${b.skipped} skipped.` : ''}`);
     process.exit(0);
   };
   process.once('SIGINT', stop);

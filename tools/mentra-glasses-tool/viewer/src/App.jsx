@@ -399,6 +399,9 @@ function describe(e) {
     case 'photo': return e.reason === 'mentra-app' ? `Photo received (${Math.round((e.bytes ?? 0) / 1000)} kB)` : `Photo saved (${e.reason ?? 'timer'})`;
     case 'video': return `Video received (${((e.bytes ?? 0) / 1e6).toFixed(1)} MB)`;
     case 'receiver_start': return 'Receiver started';
+    case 'bodyos_stored': return `Kept in BodyOS API (${e.artifactId ?? 'no id'})`;
+    case 'bodyos_failed': return `BodyOS API did not keep it: ${e.error}`;
+    case 'bodyos_skipped': return `Not sent to BodyOS API: ${e.reason}`;
     case 'photo_error': return `Photo failed: ${e.message}`;
     case 'head_position': return `Head ${e.position}`;
     case 'button': return `Button: ${e.pressType} press`;

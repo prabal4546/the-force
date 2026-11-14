@@ -28,13 +28,47 @@ Tested here by sending a real JPEG and a real MP4 the way the glasses do (multip
   Ctrl+C when you are done.
 - macOS may ask whether Node may accept incoming connections: allow it, or the glasses cannot reach it.
 
+## Where the output is kept
+
+Every photo is kept in two places:
+
+| What | `data/` on this computer (always) | Team BodyOS API (when `BODYOS_API_URL` is set) |
+|---|---|---|
+| Photos from the Wi-Fi receiver | `data/<time>_mentra-app/photos/` | Yes: an artifact per photo |
+| Screenshots from the SDK route and the demo | `data/<time>_<user>/photos/` | Yes |
+| Video clips | `data/video/<time>_<id>/recording.mp4` | No: the API takes JPEG and PNG photos only |
+| Frames cut from the live stream (`npm run video`) | `data/video/<time>/frames/` | No |
+| Events (head, button, battery, what was kept where) | `events.jsonl` in each folder | No |
+
+The API is the Mac runtime's device input API (`make api`, documented in `docs/api.md` on the API
+branch). For each photo the tool registers the glasses as `device_type: glasses`, then sends
+`POST /v1/glasses/photos?device_id=<BODYOS_DEVICE_ID>` with the photo and a `requestId`.
+`events.jsonl` then gets a `bodyos_stored` line with the `artifactId` and `photoUrl`
+(`GET /v1/artifacts/<id>` returns the original bytes).
+
+```bash
+BODYOS_API_URL=http://<Mac running the API>:8000 BODYOS_SESSION_TOKEN=<API token> npm run receive
+```
+
+- The copy in `data/` is written first, so if the API is down nothing is lost. Each upload is tried 3
+  times (and re-registers the glasses if the API restarted), then logged as `bodyos_failed` and shown
+  in the viewer. A wrong token or a rejected photo is not retried.
+- The `requestId` sent is the glasses' own id plus the file name, so each photo gets its own artifact
+  and a retry gives back the same artifact instead of a duplicate.
+- WebP photos stay in `data/` only (`bodyos_skipped`).
+- The API keeps its artifact list in memory: after it restarts, old `photoUrl`s stop working even
+  though its files stay on its disk.
+
+Tested here against the real API from the `codex/api` branch: a 4 MB JPEG through the receiver came
+back from `/v1/artifacts/<id>` byte for byte, and 5 of 5 demo-glasses screenshots were kept.
+
 The rest of this page is the older route through the Mentra cloud (MentraOS app + ngrok).
 
 ## What is tested and what is not
 
 | Part | Status |
 |---|---|
-| Saving events, photos, IMU samples; settings checks; photo/video logic; the live feed; the Wi-Fi receiver | Tested here (`npm test`, 23 tests) |
+| Saving events, photos, IMU samples; settings checks; photo/video logic; the live feed; the Wi-Fi receiver; sending photos to the BodyOS API | Tested here (`npm test`, 30 tests) |
 | Video receiver (`scripts/record-video.sh`) | Tested here with a fake RTMP push: it made `recording.mp4`, frame screenshots and `latest.jpg` |
 | `/imu` endpoint on the real MentraOS SDK server | Tested here: wrong token refused, good samples saved |
 | **Real glasses end to end** (app registration, the tunnel, photos, the stream) | **Not tested.** No glasses were available. The SDK calls were checked against the installed `@mentra/sdk` 2.1.29 type files, not run against a pair of glasses |

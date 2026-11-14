@@ -4,7 +4,7 @@
  *
  * Returns an async `stop()` that releases everything.
  */
-export function attachSession(session, store, cfg, log = console) {
+export function attachSession(session, store, cfg, log = console, { beforeClose = async () => {} } = {}) {
   const off = []; // unsubscribe functions
   let timer = null;
   let busy = false; // photos take seconds over Bluetooth: never start one on top of another
@@ -91,6 +91,7 @@ export function attachSession(session, store, cfg, log = console) {
         /* the glasses may already have disconnected */
       }
     }
+    await beforeClose(); // photos already taken finish uploading before the folder closes
     store.event('session_end');
     await store.close();
   };

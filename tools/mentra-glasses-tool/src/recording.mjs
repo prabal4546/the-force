@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { SessionStore } from './store.mjs';
 import { attachSession } from './session.mjs';
+import { forwardToBodyos } from './bodyos.mjs';
 
 /**
  * Start recording one glasses session and tell the live feed about everything it writes.
@@ -11,11 +12,13 @@ export function startRecording({ session, userId, cfg, live = null, log = consol
   const sessionId = path.basename(store.dir);
   const unsubscribe = live ? store.subscribe((event) => live.event(sessionId, event)) : () => {};
   live?.sessionStarted({ sessionId, user: String(userId ?? ''), video: cfg.video });
-  const stopSession = attachSession(session, store, cfg, log);
+  const bodyos = cfg.bodyos?.url ? forwardToBodyos(store, { ...cfg.bodyos, log }) : null;
+  const stopSession = attachSession(session, store, cfg, log, { beforeClose: async () => bodyos?.drain() });
 
   return {
     store,
     sessionId,
+    bodyos,
     async stop(reason = 'stopped') {
       await stopSession();
       unsubscribe();
