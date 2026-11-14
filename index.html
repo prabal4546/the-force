@@ -72,6 +72,25 @@
   canvas { border: 1px solid var(--line); border-radius: 6px; width: 380px; max-width: 100%; height: 70px; }
   #taps { font: 13px ui-monospace, monospace; white-space: pre; height: 100px; overflow-y: auto; background: var(--idle-bg); border-radius: 9px; padding: 8px 12px; }
 
+  body.one #dial, body.one #tile-adjust { display: none; }
+  body.sweep #rollMeter, body.tilt #swipeMeter { display: none; }
+  body.tilt .steps { grid-template-columns: repeat(2, 1fr); }
+  #rollTrack u { display: none; }
+  body.tilt #rollTrack u { display: block; }
+  body.tilt #rollTrack.hit i { background: var(--good); }
+  body.one .gestures { grid-template-columns: 1fr; }
+  body.one .tiles { grid-template-columns: repeat(4, 1fr); }
+
+  /* Fine tuning */
+  .tune { display: grid; grid-template-columns: 190px 1fr 92px; gap: 2px 14px; align-items: center; margin-top: 14px; }
+  .tune label { font-weight: 600; font-size: 15px; }
+  .tune input[type=range] { width: 100%; accent-color: var(--accent); }
+  .tune output { font: 14px ui-monospace, monospace; text-align: right; }
+  .tune output.changed { color: var(--accent); font-weight: 700; }
+  .tune small { grid-column: 1 / -1; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  #tuneText { font: 13px/1.5 ui-monospace, monospace; white-space: pre; background: var(--idle-bg); border-radius: 9px; padding: 10px 12px; margin-top: 10px; display: none; overflow-x: auto; }
+  @media (max-width: 560px) { .tune { grid-template-columns: 1fr 92px; } .tune label { grid-column: 1 / -1; } }
+
   /* Calibration */
   #wizard { position: fixed; inset: 0; background: rgba(8, 10, 14, .62); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
   #wizard.open { display: flex; }
@@ -124,24 +143,30 @@
         <div id="gesture">&nbsp;</div>
         <div class="tiles">
           <div class="tile" id="tile-adjust"><b>🔄</b>Twist</div>
-          <div class="tile" id="tile-step"><b>👋</b>Flick</div>
+          <div class="tile" id="tile-step"><b id="stepIcon">👋</b><span id="stepName">Swipe</span></div>
           <div class="tile" id="tile-toggle"><b>☝️</b>Tap</div>
           <div class="tile" id="tile-select"><b>✌️</b>Double-tap</div>
           <div class="tile" id="tile-command"><b>🎙️</b>Voice</div>
         </div>
-        <div class="meter">
+        <div class="meter" id="rollMeter">
           <label><span>Wrist turn</span><span id="rollText">--</span></label>
-          <div class="track" id="rollTrack"><i id="rollBar"></i></div>
+          <div class="track" id="rollTrack"><i id="rollBar"></i><u id="rollLeft"></u><u id="rollRight"></u></div>
         </div>
-        <div class="meter">
-          <label><span>Flick strength (line = how hard a flick must be)</span><span id="flickText">--</span></label>
-          <div class="track"><i id="flickBar" style="left: 0"></i><u id="flickMark"></u></div>
+        <div class="meter" id="swipeMeter">
+          <label><span id="swipeLabel">Swipe strength (line = how hard a swipe must be)</span><span id="swipeText">--</span></label>
+          <div class="track"><i id="swipeBar" style="left: 0"></i><u id="swipeMark"></u></div>
         </div>
       </div>
     </div>
+    <div class="row" id="armRow" style="margin-top: 14px">
+      <span class="muted">Band is on my</span>
+      <button id="arm-left">Left arm</button>
+      <button id="arm-right">Right arm</button>
+      <span class="muted">the easy way to tip is outward, so each arm gets its own distances</span>
+    </div>
     <p id="whyNot" class="muted" style="margin: 12px 0 0; min-height: 20px"></p>
-    <p class="muted" style="margin: 8px 0 0">Hold your forearm level with your <b>thumb up</b>, like holding a mug: from there the wrist can turn both ways.
-      Twist away from rest to adjust (turning back is free), flick your hand sideways (left or right in the room, however your wrist is turned) to step, tap or double-tap the band.</p>
+    <p class="muted" id="howTo" style="margin: 8px 0 0">Hold your forearm level with your <b>thumb up</b>, like holding a mug: from there the wrist can turn both ways.
+      Twist away from rest to adjust (turning back is free), swipe your forearm sideways, pivoting at the elbow (left or right in the room, however your wrist is turned) to step, tap or double-tap the band.</p>
   </section>
 
   <section class="card">
@@ -195,8 +220,27 @@
   </section>
 
   <section class="card">
-    <h2>Outgoing messages</h2>
+    <div class="row spread" style="margin-bottom: 12px">
+      <h2 style="margin: 0">Outgoing messages</h2>
+      <span id="hub" class="pill">Device API: not tried yet</span>
+    </div>
     <div id="log"></div>
+    <p id="hubText" class="muted" style="margin: 10px 0 0"></p>
+  </section>
+
+  <section class="card">
+    <details id="tuning">
+      <summary>Fine tuning <span id="tuneCount" class="muted"></span></summary>
+      <p class="muted" style="margin: 10px 0 0">Each slider takes effect at once and is kept in this browser. Try a gesture after each change:
+        the line under the tiles says why a movement was not counted.</p>
+      <div class="tune" id="tuneRows"></div>
+      <div class="row" style="margin-top: 6px">
+        <button id="tuneReset">Back to defaults</button>
+        <button id="tuneCopy">Copy for CONFIG</button>
+        <span class="muted">to keep the values for everyone, paste them into <code>CONFIG</code> in <code>gestures.js</code></span>
+      </div>
+      <div id="tuneText"></div>
+    </details>
   </section>
 
   <section class="card">
@@ -205,9 +249,9 @@
       <table id="readouts">
         <tr><td>Arm from level</td><td id="angle">--</td></tr>
         <tr><td>Twist axis</td><td id="twistAxis">--</td></tr>
-        <tr><td>Flick axis</td><td id="flickAxis">--</td></tr>
+        <tr><td>Swipe axis</td><td id="swipeAxis">--</td></tr>
         <tr><td>Tap before double-tap</td><td id="tapCheck">--</td></tr>
-        <tr><td>Last flick not counted</td><td id="missedFlick">--</td></tr>
+        <tr><td>Last movement</td><td id="movement">--</td></tr>
         <tr><td>Motion rate</td><td id="motionRate">--</td></tr>
       </table>
       <p><button id="saveMotion">Save last 10 s of motion</button> <span class="muted">a file for tuning a gesture that is not recognised</span></p>
@@ -247,6 +291,7 @@
 <script type="module">
   import { Band, SimTransport } from './vexo-open-kit/js/src/index.js';
   import * as remote from './band-module.js';
+  import { bandDeviceId, createHubLink, hubPost } from './hub.js';
 
   const BAND = 28;                                   // our team's band number: Vexo-HACK-28
   const SIM = location.search.includes('sim');       // index.html?sim = pretend band, no hardware
@@ -255,6 +300,7 @@
   const say = (text) => { $('status').textContent = text; };
   const pause = (ms) => new Promise((done) => setTimeout(done, ms));
   let band = null;
+  let bandOn = false;                                // a band is connected right now
   let latest = null;                                 // the newest motion sample
   let sound = null;                                  // for the short beeps
   document.title = $('title').textContent = 'Band ' + BAND + ' remote';
@@ -297,13 +343,27 @@
   }
 
   // ---- Gestures: dial, tiles, meters, message log ----
+  const MODE = remote.CONFIG.gestures;               // 'tilt', 'leftRight' or 'twistAndSwipe'
+  const TILT = MODE === 'tilt';
+  const ONE = MODE !== 'twistAndSwipe';              // one gesture, left and right, instead of twist and swipe
+  if (ONE) {
+    document.body.classList.add('one', TILT ? 'tilt' : 'sweep');
+    $('stepIcon').textContent = '↔️';
+    $('stepName').textContent = 'Left / Right';
+    $('swipeLabel').textContent = 'Sweep strength (line = how hard a sweep must be)';
+    $('howTo').innerHTML = TILT
+      ? 'Hold your forearm level and still for a moment: that is the centre. Then, <b>keeping the arm itself still, tip your wrist right or left, like turning a key, and come back</b>. '
+        + 'Each tip past the line is one step; coming back sends nothing. Tap or double-tap the band for the other two.'
+      : 'Hold your forearm level and still, then move it <b>right or left</b>: sweep the forearm sideways, pivoting at the elbow, '
+        + 'or turn your wrist (clockwise is right). Each one is a step; coming back is free. Tap or double-tap the band for the other two.';
+  }
   let dial = 0.5;                                    // what the adjust messages add up to, 0..1
-  let flickPeak = 0;                                 // a fading peak, so a short flick stays visible
+  let swipePeak = 0;                                 // a fading peak, so a short swipe stays visible
   const logLines = [];                               // newest first: { time, name, json, count, at }
 
   function gestureName(message) {
     if (message.type === 'adjust') return message.delta > 0 ? 'Twist clockwise' : 'Twist counter-clockwise';
-    if (message.type === 'step') return message.direction > 0 ? 'Flick right' : 'Flick left';
+    if (message.type === 'step') return ONE ? (message.direction > 0 ? 'Right' : 'Left') : (message.direction > 0 ? 'Swipe right' : 'Swipe left');
     if (message.type === 'toggle') return 'Tap';
     if (message.type === 'select') return 'Double-tap';
     if (message.type === 'command') return 'Voice';
@@ -335,6 +395,7 @@
 
     if (!state.connected) pill($('clutch'), 'Not connected');
     else if (!cal) pill($('clutch'), 'Calibrate first', 'warn');
+    else if (state.clutch && !state.calm && !state.moving) pill($('clutch'), 'Hold still a moment' + (state.why ? ': ' + state.why : ''), 'warn');
     else if (state.clutch) pill($('clutch'), 'Ready', 'good');
     else pill($('clutch'), 'Arm not level: gestures paused');
 
@@ -342,24 +403,32 @@
     const roll = state.roll === null ? 0 : Math.max(-120, Math.min(120, state.roll));
     $('rollBar').style.left = (roll >= 0 ? 50 : 50 + roll / 2.4) + '%';
     $('rollBar').style.width = Math.abs(roll) / 2.4 + '%';
-    $('rollText').textContent = state.roll === null ? '--' : state.roll.toFixed(0) + ' deg from rest';
+    $('rollText').textContent = state.roll === null ? '--' : state.roll.toFixed(0) + ' deg from rest'
+      + (TILT && state.limitLeft ? '  (a step at ' + Math.round(state.limitLeft) + ' left, ' + Math.round(state.limitRight) + ' right)' : '');
+    if (TILT) {                                      // the two lines a tip has to pass
+      const right = state.limitRight || remote.CONFIG.tiltOutDegrees, left = state.limitLeft || remote.CONFIG.tiltOutDegrees;
+      $('rollLeft').style.left = (50 - left / 2.4) + '%';          // the lines move with the arm and with where the wrist rests
+      $('rollRight').style.left = (50 + right / 2.4) + '%';
+      $('rollTrack').classList.toggle('hit', roll >= right || -roll >= left);
+    }
 
-    // Flick strength against the wearer's threshold; the scale is twice the threshold.
-    flickPeak = Math.max(Math.abs(state.flickRate), flickPeak * 0.93);
-    $('flickBar').style.width = Math.min(100, flickPeak / (state.flickMin * 2) * 100) + '%';
-    $('flickMark').style.left = '50%';
-    $('flickText').textContent = Math.round(flickPeak) + ' / ' + Math.round(state.flickMin) + ' deg/s';
+    // Swipe strength against the wearer's threshold; the scale is twice the threshold.
+    swipePeak = Math.max(Math.abs(state.swipeRate), swipePeak * 0.93);
+    $('swipeBar').style.width = Math.min(100, swipePeak / (state.swipeMin * 2) * 100) + '%';
+    $('swipeMark').style.left = '50%';
+    $('swipeText').textContent = Math.round(swipePeak) + ' / ' + Math.round(state.swipeMin) + ' deg/s';
 
     $('angle').textContent = state.angle === null ? '--' : state.angle.toFixed(0) + ' deg  (gestures within ' + remote.CONFIG.clutchDegrees + ')';
     const direction = (v) => 'x ' + v[0].toFixed(2) + '  y ' + v[1].toFixed(2) + '  z ' + v[2].toFixed(2);
     $('twistAxis').textContent = cal ? 'mostly ' + cal.twistAxis + '  (' + direction(cal.twistVec) + ')' : '--';
-    $('flickAxis').textContent = cal ? 'mostly ' + cal.flickAxis + '  (' + direction(cal.flickVec) + ')' : '--';
+    $('swipeAxis').textContent = cal && cal.swipeVec ? 'mostly ' + cal.swipeAxis + '  (' + direction(cal.swipeVec) + ')' : TILT ? 'not used' : '--';
     const t = state.tapCheck;
     $('tapCheck').textContent = (t.doubleTaps === 0 ? 'double-tap a few times to check' : t.withTapBefore + ' of ' + t.doubleTaps + ' double-taps')
       + (state.tapDelay ? '  (tap waits ' + remote.CONFIG.tapDelayMs + ' ms)' : '  (tap fires at once)');
-    $('missedFlick').textContent = state.missedFlick || '--';
-    $('whyNot').textContent = [state.missedFlick && 'Last flick not counted: ' + state.missedFlick, state.missedTwist && 'Last twist not counted: ' + state.missedTwist]
-      .filter(Boolean).join('.  ');
+    const m = state.movement;                        // how the last movement was judged
+    $('movement').textContent = m && m.winner === 'tilt' ? m.result + '  (' + m.twist.toFixed(0) + ' deg from the centre)' : m ? m.result + '  (swipe ' + m.swipe.toFixed(1) + ' deg, twist ' + m.twist.toFixed(1) + ' deg in the first '
+      + remote.CONFIG.classifyMs + ' ms: ' + (m.winner === 'none' ? 'no winner' : m.winner + ' won') + ')' : '--';
+    $('whyNot').textContent = state.missed ? 'Last movement not counted: ' + state.missed : '';
 
     $('motionRate').textContent = state.motionRate + ' samples a second';
 
@@ -460,12 +529,155 @@
     URL.revokeObjectURL(link.href);
   };
 
+  // ---- Fine tuning: sliders over the thresholds in CONFIG, kept in this browser ----
+  const TUNING = [                                   // `modes`: which gesture modes a slider matters in (none = all)
+    { key: 'tiltOutDegrees', name: 'Tip outward: how far', unit: 'deg', min: 10, max: 70, step: 1, modes: ['tilt'],
+      hint: 'Outward is the easy way: thumb away from your body, palm coming up. Left on the left arm, right on the right arm.' },
+    { key: 'tiltInDegrees', name: 'Tip inward: how far', unit: 'deg', min: 8, max: 70, step: 1, modes: ['tilt'],
+      hint: 'Inward is the harder way, so less is asked. Lower it until both ways feel alike.' },
+    { key: 'tiltRangeShare', name: 'Ease off near the end', unit: 'of the room left', min: 0, max: 0.9, step: 0.05, modes: ['tilt'],
+      hint: 'Off at 0. Above 0, a wrist resting already turned one way is asked for at most this share of the room it has left that way. Only fits if you calibrated thumb up.' },
+    { key: 'tiltArmDps', name: 'Arm movement that cancels', unit: 'deg/s', min: 30, max: 200, step: 5, modes: ['tilt'],
+      hint: 'The arm itself turning faster than this forgets the centre until it is still again. Lower removes more ghost steps while you move around; raise it if "Hold still a moment: arm turning" shows during a tip.' },
+    { key: 'tiltArmLeak', name: 'Wrist turn allowed to spill', unit: 'x', min: 0, max: 1, step: 0.05, modes: ['tilt'],
+      hint: 'No wrist turns about one line only: this share of its own turning speed is allowed on the other directions. Raise it if fast tips are refused.' },
+    { key: 'tiltArmDegrees', name: 'Raise or lower that cancels', unit: 'deg', min: 5, max: 45, step: 1, modes: ['tilt'],
+      hint: 'The forearm raised or lowered this far also forgets the centre.' },
+    { key: 'tiltReturnDegrees', name: 'Tip: back to centre', unit: 'deg', min: 3, max: 30, step: 1, modes: ['tilt'],
+      hint: 'How close to the centre the wrist must come back before the next step. Raise it if a second tip is not picked up.' },
+    { key: 'tiltHoldMs', name: 'Tip: stay past the line', unit: 'ms', min: 0, max: 400, step: 10, modes: ['tilt'],
+      hint: 'How long it must stay past the line. Higher ignores shakes; lower answers faster.' },
+    { key: 'tiltRecentreMs', name: 'Tip: new centre after', unit: 'ms', min: 500, max: 5000, step: 100, modes: ['tilt'],
+      hint: 'A wrist that rests this long somewhere new makes that the centre. Raise it if steps go missing after a pause.' },
+    { key: 'moveStartDps', name: 'Movement start', unit: 'deg/s', min: 15, max: 150, step: 5, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'How fast the forearm must turn before anything is looked at. Higher ignores more small movement.' },
+    { key: 'settleMs', name: 'Still before a gesture', unit: 'ms', min: 0, max: 600, step: 10,
+      hint: 'A gesture only starts from an arm held still this long. Higher removes more ghost gestures.' },
+    { key: 'settleDps', name: 'What counts as still', unit: 'deg/s', min: 20, max: 150, step: 5,
+      hint: 'The band turning slower than this, in any direction. Raise it if "Hold still a moment" shows while your arm is steady.' },
+    { key: 'returnMs', name: 'Coming back is free for', unit: 'ms', min: 0, max: 2500, step: 50, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'Moving back the other way this soon after a counted one is not a new gesture. Higher removes ghost steps in the opposite direction.' },
+    { key: 'dominanceRatio', name: 'Twist or swipe', unit: 'x', min: 1, max: 3, step: 0.1, modes: ['twistAndSwipe'],
+      hint: 'How much more one must be than the other. Higher drops more mixed movements; lower guesses more often.' },
+    { key: 'twistStartDegrees', name: 'Wrist turn: how far', unit: 'deg', min: 5, max: 60, step: 1, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'How far the wrist must turn to count. Higher needs a more deliberate turn.' },
+    { key: 'twistStepDegrees', name: 'Twist: step', unit: 'deg', min: 5, max: 40, step: 1, modes: ['twistAndSwipe'],
+      hint: 'Degrees per adjust after that. Lower changes the dial faster.' },
+    { key: 'swipeMinDps', name: 'Swipe: strength', unit: 'deg/s', min: 80, max: 600, step: 10, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'How fast a sweep must peak. Once moved, this value is used as it is, not the one from your calibration.' },
+    { key: 'swipeMinDegrees', name: 'Swipe: smallest sweep', unit: 'deg', min: 0, max: 45, step: 1, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'How far the forearm must travel. Higher rejects bumps and jolts, which are fast but go nowhere.' },
+    { key: 'swipeMaxMs', name: 'Swipe: longest', unit: 'ms', min: 150, max: 800, step: 10, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'A sweep that lasts longer is not a swipe.' },
+    { key: 'clutchDegrees', name: 'Arm level within', unit: 'deg', min: 20, max: 90, step: 5,
+      hint: 'How far from level the forearm may be. Lower means gestures only count in a stricter pose.' },
+    { key: 'cooldownMs', name: 'Pause after a gesture', unit: 'ms', min: 0, max: 1500, step: 50,
+      hint: 'Quiet time after each gesture. Higher stops one movement counting twice.' },
+  ].filter((t) => !t.modes || t.modes.includes(MODE));
+  const TUNING_KEY = 'vexo-band-tuning';
+  const DEFAULTS = { ...remote.CONFIG };             // as written in gestures.js, before any slider
+  let tuned = {};                                    // only the values that differ from the defaults
+  try { tuned = JSON.parse(localStorage.getItem(TUNING_KEY)) || {}; } catch { /* no storage: sliders still work, for this visit */ }
+  delete tuned.tiltRightDegrees; delete tuned.tiltLeftDegrees;      // replaced by outward and inward
+
+  function applyTuning() {
+    for (const t of TUNING) {
+      const value = Number.isFinite(tuned[t.key]) ? Math.max(t.min, Math.min(t.max, tuned[t.key])) : DEFAULTS[t.key];
+      if (value === DEFAULTS[t.key]) delete tuned[t.key]; else tuned[t.key] = value;
+      remote.CONFIG[t.key] = value;
+      const slider = $('tune-' + t.key), shown = $('tuneValue-' + t.key);
+      slider.value = value;
+      shown.textContent = value + ' ' + t.unit;
+      shown.className = t.key in tuned ? 'changed' : '';
+      shown.title = 'default ' + DEFAULTS[t.key] + ' ' + t.unit;
+    }
+    remote.CONFIG.swipeFromCalibration = !Number.isFinite(tuned.swipeMinDps);
+    const count = Object.keys(tuned).length;
+    $('tuneCount').textContent = count ? '(' + count + ' changed)' : '';
+    try { localStorage.setItem(TUNING_KEY, JSON.stringify(tuned)); } catch { /* not kept: fine */ }
+  }
+
+  $('tuneRows').replaceChildren(...TUNING.flatMap((t) => {
+    const label = document.createElement('label'), slider = document.createElement('input');
+    const shown = document.createElement('output'), hint = document.createElement('small');
+    label.textContent = t.name;
+    label.htmlFor = slider.id = 'tune-' + t.key;
+    slider.type = 'range';
+    slider.min = t.min; slider.max = t.max; slider.step = t.step;
+    slider.oninput = () => { tuned[t.key] = Number(slider.value); applyTuning(); };
+    shown.id = 'tuneValue-' + t.key;
+    hint.textContent = t.hint;
+    return [label, slider, shown, hint];
+  }));
+  applyTuning();
+  $('tuneReset').onclick = () => { tuned = {}; applyTuning(); $('tuneText').style.display = 'none'; };
+  $('tuneCopy').onclick = async () => {
+    const keys = Object.keys(tuned);
+    const lines = keys.map((k) => '  ' + k + ': ' + tuned[k] + ',');
+    if (!remote.CONFIG.swipeFromCalibration) lines.push('  swipeFromCalibration: false,');
+    const text = keys.length ? lines.join('\n') : 'Nothing changed: every slider is at its default.';
+    $('tuneText').textContent = text;
+    $('tuneText').style.display = 'block';
+    if (keys.length) { try { await navigator.clipboard.writeText(text); say('Tuning copied.'); } catch { /* shown on the page instead */ } }
+  };
+
+  // ---- Device API: every outgoing message is posted to the team's API, through serve.py's /hub ----
+  const hub = createHubLink({ post: hubPost(), deviceId: bandDeviceId(BAND), onChange: showHub });
+  function showHub(state) {
+    const kind = { ready: 'good', unreachable: 'warn', refused: 'warn' }[state.status] || '';
+    const text = { idle: 'not tried yet', ready: 'connected', unreachable: 'not reachable', refused: 'refused' }[state.status];
+    pill($('hub'), 'Device API: ' + text, kind);
+    $('hubText').textContent = 'As ' + state.deviceId + ': ' + state.accepted + ' accepted, ' + state.dropped + ' not delivered.'
+      + (state.problem ? '  ' + state.problem : '');
+  }
+  showHub(hub.state);
+  remote.onEvent((message) => hub.send(message));
+  setInterval(() => {                                // the API was not there: look again while the band is on
+    if (bandOn && hub.state.status !== 'ready') hub.register('connected');
+  }, 5000);
+
+  // ---- Trace: what the band did and what the detector made of it, kept by serve.py for looking at afterwards ----
+  const trace = [];                                  // motion since the last post: [t, ax, ay, az, gx, gy, gz]
+  const traceEvents = [];                            // messages and taps since the last post
+  let traceOff = false;                              // the server is not serve.py: stop trying
+  remote.onEvent((message) => traceEvents.push({ at: Date.now(), message }));
+  setInterval(async () => {
+    if (traceOff || trace.length === 0) return;
+    const state = remote.getState();
+    const config = {};
+    for (const [key, value] of Object.entries(remote.CONFIG)) if (typeof value !== 'object') config[key] = value;
+    const body = JSON.stringify({
+      at: Date.now(), samples: trace.splice(0), events: traceEvents.splice(0), config,
+      calibration: state.calibration,
+      state: { clutch: state.clutch, calm: state.calm, why: state.why, angle: state.angle, roll: state.roll, centre: state.centre,
+        armRate: state.armRate, limitRight: state.limitRight, limitLeft: state.limitLeft, movement: state.movement, missed: state.missed },
+    });
+    try {
+      const reply = await fetch('/trace', { method: 'POST', body });
+      if (!reply.ok) traceOff = true;
+    } catch { traceOff = true; }
+  }, 2000);
+
+  // ---- Which arm: a forearm turns outward more easily than inward, and outward is left on the left arm ----
+  const ARM_KEY = 'vexo-band-arm';
+  function setArm(arm, keep) {
+    remote.CONFIG.wearingArm = arm === 'right' ? 'right' : 'left';
+    for (const side of ['left', 'right']) $('arm-' + side).classList.toggle('primary', side === remote.CONFIG.wearingArm);
+    if (keep) { try { localStorage.setItem(ARM_KEY, remote.CONFIG.wearingArm); } catch { /* not kept: fine */ } }
+  }
+  let savedArm = null;
+  try { savedArm = localStorage.getItem(ARM_KEY); } catch { /* no storage */ }
+  setArm(savedArm || remote.CONFIG.wearingArm, false);
+  $('arm-left').onclick = () => setArm('left', true);
+  $('arm-right').onclick = () => setArm('right', true);
+  $('armRow').style.display = TILT ? '' : 'none';
+
   // ---- Calibration: three poses, one at a time, each checked before the next ----
   const POSES = [
     { kind: 'level', short: 'Level', icon: '☕', title: 'Hold your arm level, thumb up', text: 'Like holding a mug, so your wrist can turn both ways from here. Keep it still.', doing: 'Hold still' },
     { kind: 'twist', short: 'Twist', icon: '🔄', title: 'Twist like a doorknob', text: 'Start by turning clockwise, then keep turning back and forth.', doing: 'Keep twisting' },
-    { kind: 'flick', short: 'Flick', icon: '👋', title: 'Flick your hand side to side', text: 'Left and right, level with the floor. Start to the right, then keep going.', doing: 'Keep flicking' },
-  ];
+    { kind: 'swipe', short: 'Swipe', icon: '👋', title: 'Swipe your forearm side to side', text: 'Pivot at the elbow and keep your wrist from turning. Left and right, level with the floor. Start to the right, then keep going.', doing: 'Keep swiping' },
+  ].filter((p) => !(TILT && p.kind === 'swipe'));    // the tilt needs the level pose and the twist only
   let wizardRun = 0;                                 // changes when the wizard is cancelled or restarted
 
   function beep(pitch) {                             // so you can watch your arm, not the screen
@@ -570,11 +782,11 @@
     }
 
     try {
-      const cal = remote.finishCalibration(poses.level, poses.twist, poses.flick);
-      const rows = [
-        ['Twist axis', cal.twistAxis], ['Flick axis', cal.flickAxis],
-        ['Your flick', Math.round(cal.flickPeak) + ' deg/s (a flick must reach ' + Math.round(remote.getState().flickMin) + ')'],
-      ];
+      const cal = remote.finishCalibration(poses.level, poses.twist, poses.swipe);
+      const rows = cal.swipeVec ? [
+        ['Twist axis', cal.twistAxis], ['Swipe axis', cal.swipeAxis],
+        ['Your swipe', Math.round(cal.swipePeak) + ' deg/s (a swipe must reach ' + Math.round(remote.getState().swipeMin) + ')'],
+      ] : [['Wrist axis', cal.twistAxis], ['A step at', remote.CONFIG.tiltOutDegrees + ' degrees outward, ' + remote.CONFIG.tiltInDegrees + ' inward of where your wrist rests']];
       $('wizSummary').replaceChildren(...rows.map(([name, value]) => {
         const row = document.createElement('tr');
         row.innerHTML = '<td class="muted"></td><td></td>';
@@ -585,7 +797,7 @@
       showStep(POSES.length, true);
       $('wizIcon').textContent = '✅';
       $('wizTitle').textContent = 'Calibrated';
-      $('wizText').textContent = 'Saved in this browser. Hold your arm level and try a twist, a flick and a tap.';
+      $('wizText').textContent = TILT ? 'Saved in this browser. Hold your arm level and still, then tip your wrist right and come back, left and come back, and tap.' : ONE ? 'Saved in this browser. Hold your arm level and still, then move it right, left, and tap.' : 'Saved in this browser. Hold your arm level and try a twist, a swipe and a tap.';
       $('wizSummary').style.display = 'table';
       say('Calibrated.');
     } catch (e) {
@@ -602,6 +814,7 @@
 
   // ---- Connecting ----
   function setConnected(on) {
+    bandOn = on;
     $('calibrate').disabled = !on;
     $('connect').disabled = on;
     $('disconnect').disabled = !on;
@@ -621,10 +834,12 @@
       band = await Band.connect(BAND, sim ? { transport: sim } : {});
       setConnected(true);
       say('Connected to ' + band.name + '.');
+      hub.register('connected');                     // tell the device API the band is here
 
       band.on('motion', (m) => {
         latest = m;
         recent.push({ t: m.t, ax: m.ax, ay: m.ay, az: m.az, gx: m.gx, gy: m.gy, gz: m.gz });
+        trace.push([m.t, m.ax, m.ay, m.az, m.gx, m.gy, m.gz]);
         if (recent.length > POINTS) recent.shift();
         for (const g of graphs) {
           g.values.push(m[g.name]);
@@ -638,6 +853,7 @@
       });
       band.on('disconnect', (e) => {
         setConnected(false);
+        hub.register('disconnected');
         say('Disconnected (' + e.reason + '). Double-tap the band before connecting again.');
       });
 

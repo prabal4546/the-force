@@ -117,9 +117,9 @@ export function recordPose() {
   }, CONFIG.poseMs));
 }
 
-/** Work out and save the calibration from the three recorded poses. Throws with a sentence to show. */
-export function finishCalibration(level, twist, flick) {
-  calibration = computeCalibration(level, twist, flick, CONFIG);
+/** Work out and save the calibration from the recorded poses (no swipe for the tilt). Throws with a sentence to show. */
+export function finishCalibration(level, twist, swipe) {
+  calibration = computeCalibration(level, twist, swipe || null, CONFIG);
   detector = createDetector(calibration, CONFIG);
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(calibration)); } catch { /* no storage: keep it in memory */ }
   return calibration;
@@ -133,13 +133,20 @@ export function getState() {
     calibration,
     clutch: d ? d.clutch : false,
     angle: d ? d.angle : null,
+    calm: d ? d.calm : false,              // level and still long enough for a gesture to start
+    moving: d ? d.moving : false,          // a movement is being looked at
     twisting: d ? d.twisting : false,
-    missedFlick: d ? d.missedFlick : null,
-    missedTwist: d ? d.missedTwist : null,
+    limitRight: d ? d.limitRight : null,   // tilt: how far a tip must go right now, each way
+    limitLeft: d ? d.limitLeft : null,
+    why: d ? d.why || null : null,          // tilt: why nothing can fire right now, or null
+    centre: d && d.centre !== undefined ? d.centre : null,
+    armRate: d && d.armRate !== undefined ? d.armRate : null,
+    missed: d ? d.missed : null,           // why the last movement was not counted, or null
+    movement: d ? d.movement : null,       // how the last movement was judged
     roll: d ? d.roll : null,
     twistRate: d ? d.twistRate : 0,
-    flickRate: d ? d.flickRate : 0,
-    flickMin: d ? d.flickMin : CONFIG.flickMinDps,
+    swipeRate: d ? d.swipeRate : 0,
+    swipeMin: d ? d.swipeMin : CONFIG.swipeMinDps,
     motionRate: slowedDown ? CONFIG.motionFallbackRate : CONFIG.motionRate,
     tapCheck: { ...tapCheck },
     active,
@@ -193,8 +200,11 @@ export function pushToTalk(on) {
 function loadCalibration() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    // Older saves lack the axis directions: calibrate again.
-    return saved && Array.isArray(saved.twistVec) && Array.isArray(saved.flickVec) && saved.rollSign && Array.isArray(saved.gravity) ? saved : null;
+    // Saves from before the swipe (version 3) do not fit: calibrate again.
+    // The tilt needs no swipe axis; the other modes do.
+    const fits = saved && saved.version === 3 && Array.isArray(saved.twistVec) && Array.isArray(saved.gravity)
+      && (CONFIG.gestures === 'tilt' || Array.isArray(saved.swipeVec));
+    return fits ? saved : null;
   } catch { return null; }                         // no storage (tests) or a broken entry
 }
 

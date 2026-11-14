@@ -35,11 +35,15 @@ The first real run asks for Bluetooth permission for your terminal. Allow it and
 
 The page cannot be opened by double-click: it has to be served.
 
-    python3 -m http.server 8000 --bind 127.0.0.1
+    python3 serve.py
 
-Then open <http://localhost:8000/index.html> in Chrome or Edge, press **Connect** and pick
+Then open <http://localhost:8001/index.html> in Chrome or Edge, press **Connect** and pick
 `Vexo-HACK-28` in the list. To try it without the band, open
-<http://localhost:8000/index.html?sim> instead.
+<http://localhost:8001/index.html?sim> instead.
+
+`serve.py` is a plain file server that also keeps the band's motion, and what the gesture
+detector made of it, in `traces/trace.jsonl` (motion only, on this computer, not in git), so a
+gesture that misbehaves can be looked at afterwards. `python3 -m http.server` works too, without the trace.
 
 ## Remote: gestures (band module)
 
@@ -49,29 +53,51 @@ no transport of its own. The maths is in `gestures.js`; every threshold is in `C
 the top of that file.
 
 On the dashboard: double-tap the band, close any other tab that uses it, press **Connect**,
-then **Calibrate** and follow the three steps (arm level, twist starting clockwise, flick
-starting to the right). Each step is checked and can be retried on its own. The calibration is kept in the browser's localStorage.
+then **Calibrate** and follow the two steps (arm level, then twist starting clockwise). Each step is checked and can be retried on its own. The calibration is kept in the browser's localStorage.
 
 | Gesture | Message |
 |---|---|
-| Twist away from rest, per 15 degrees | `{ "type": "adjust", "delta": 0.05 }` (negative the other way) |
-| Flick | `{ "type": "step", "direction": 1 }` or `-1` |
+| Tip the wrist right (clockwise) and come back | `{ "type": "step", "direction": 1 }` |
+| Tip the wrist left (counter-clockwise) and come back | `{ "type": "step", "direction": -1 }` |
 | Tap | `{ "type": "toggle" }` |
 | Double-tap | `{ "type": "select" }` |
 
-Twist and flick only count while the forearm is within 50 degrees of level (`clutchDegrees`), so a hanging arm fires nothing.
+The arm makes one gesture: tip the wrist right or left, like turning a key, and come back.
+`adjust` is no longer sent.
 
-How the detection works (`gestures.js`):
+How it works (`gestures.js`, `gestures: 'tilt'`):
 
-- It tracks the real wrist angle: the gyro for speed, gravity to stop it drifting.
-- A twist is measured from where the wrist was resting. Turning away sends adjusts; turning
-  back sends nothing. To go further, turn, come back, and turn again.
-- The twist axis is the direction the forearm turns about, found in calibration (the band
-  rarely sits square on the wrist).
-- A flick is a sideways turn in the room: about the vertical, which the band knows from
-  gravity. So it is the same gesture palm down, thumb up or anywhere between.
-- Twist or flick is decided by which of the two is stronger at that moment.
-- The flick threshold drops for a wearer whose calibrated flick is gentle.
+- The wrist's angle about the forearm is read from gravity. It is an angle, not a turning
+  speed added up, so it does not drift and a shake or a bump does not move it.
+- The centre is wherever the level arm holds still (`settleMs`): thumb up, palm down or
+  between. It is the average over that moment, and it keeps following a wrist that rests
+  near it. Tipped far enough from the centre for `tiltHoldMs` is one step.
+- How far depends on the arm (`wearingArm`, and the Left arm / Right arm buttons on the
+  page). A forearm turns outward (thumb away from the body) more easily than inward, and
+  outward is left on the left arm, right on the right arm. Outward asks `tiltOutDegrees`
+  (30), inward `tiltInDegrees` (24).
+- Optional, off by default (`tiltRangeShare`): ask less of a wrist that already rests turned
+  one way, as a share of the room it has left (about 85 degrees outward and 75 inward of
+  thumb up). It only fits if the level pose in calibration was thumb up.
+- Only a turn of the wrist counts. If the arm itself turns (`tiltArmDps`, about anything
+  but the forearm, for `tiltArmMs`, allowing for `tiltArmLeak` of the wrist's own turning) or the forearm is raised or lowered (`tiltArmDegrees`), the centre is
+  forgotten and found again once the arm is still. So moving around sends nothing.
+- The wrist has to come back within `tiltReturnDegrees` (12) of the centre before the next
+  step. Coming back never sends anything, so there is no step in the opposite direction.
+- A wrist that rests somewhere new for `tiltRecentreMs` makes that the centre.
+- Nothing counts while the forearm is more than 50 degrees from level (`clutchDegrees`).
+- Calibration is two poses: arm level, then twist (it gives the forearm's direction in the band).
+
+Two older modes read turning speed instead and were not reliable enough on the real band.
+They are still in the code: `gestures: 'leftRight'` (a sideways sweep or a wrist turn, one
+step each) and `gestures: 'twistAndSwipe'` (a twist sends `adjust`, a swipe sends `step`).
+Both need the third calibration pose, the swipe.
+
+**Fine tuning** on the page has a slider for each threshold that matters. A slider takes
+effect at once and is kept in that browser's localStorage. **Copy for CONFIG** gives the
+changed values as text to paste into `CONFIG`, which is how they reach everyone else.
+
+Calibrations saved before the swipe change are dropped: the page asks to calibrate again.
 
 ### Voice
 
@@ -93,6 +119,36 @@ the active device, gesture flashes and errors show on the page instead.
 Paste the team's Deepgram key into the key field on the page. It is kept in that tab's
 sessionStorage only: never put it in a file or a commit. Everything the microphone hears,
 from everyone nearby, goes to Deepgram: tell the people near you and mute when not in use.
+
+### Device API (the-force)
+
+Every outgoing message is posted to the team's device API, as its contract asks
+(`the-force`, branch `codex/api`, `docs/api.md`; the body schema is kept in
+`contract/band-input.schema.json`):
+
+- On connect the band is registered: `POST /v1/devices/connect` with
+  `{ "device_id": "vexo-28", "device_type": "band", "hardware_status": "connected" }`, and
+  `"disconnected"` when the band drops. The ID is `vexo-` plus the band number.
+- Each message goes to `POST /v1/band/events?device_id=vexo-28`, body unchanged, with a new
+  `Idempotency-Key` per event. A retry of the same event reuses its key.
+- `hub.js` checks each message against the contract first (the API is strict: no extra
+  fields, `direction` is the integer -1 or 1, command text not blank and at most 4000
+  characters) and does not send one that would be refused.
+- If the API restarted and forgot the band (404), the band is registered again and the event
+  sent again. An event that cannot be delivered within 3 seconds is dropped, not sent late.
+- The page shows the state next to **Outgoing messages**: connected, not reachable or
+  refused, with the reason.
+
+The page reaches the API through `serve.py` (`/hub/...`), because a browser page cannot call
+another address that sends no CORS headers, and so the session token stays out of the browser:
+
+    export BODYOS_API_URL=http://127.0.0.1:8000     # where the API runs (this is the default)
+    export BODYOS_SESSION_TOKEN=your-team-demo-token   # only if the API was started with one
+    python3 serve.py
+
+The API has no channel back to the band yet, so `active`, `say` and `error` below still come
+only from the test buttons on the page. With the tilt gesture the band sends `step`, `toggle`,
+`select` and `command`; `adjust` is in the contract but only the `twistAndSwipe` mode sends it.
 
 ### Incoming messages
 

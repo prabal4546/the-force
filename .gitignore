@@ -1,3 +1,4 @@
 vexo-open-kit/
 .env
 .venv/
+traces/
