@@ -54,12 +54,20 @@ starting to the right, wrist raised to the mouth). The calibration is kept in th
 
 | Gesture | Message |
 |---|---|
-| Twist, per 15 degrees | `{ "type": "adjust", "delta": 0.05 }` (negative the other way) |
+| Twist away from rest, per 15 degrees | `{ "type": "adjust", "delta": 0.05 }` (negative the other way) |
 | Flick | `{ "type": "step", "direction": 1 }` or `-1` |
 | Tap | `{ "type": "toggle" }` |
 | Double-tap | `{ "type": "select" }` |
 
 Twist and flick only count while the forearm is within 35 degrees of the level pose.
+
+How the detection works (`gestures.js`):
+
+- It tracks the real wrist angle: the gyro for speed, gravity to stop it drifting.
+- A twist is measured from where the wrist was resting. Turning away sends adjusts; turning
+  back sends nothing. To go further, turn, come back, and turn again.
+- Twist or flick is decided by which axis is stronger at that moment.
+- The flick threshold drops for a wearer whose calibrated flick is gentle.
 
 ### Voice
 

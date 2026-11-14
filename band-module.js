@@ -85,6 +85,7 @@ export function getState() {
     angle: detector ? detector.state.angle : null,
     twisting: detector ? detector.state.twisting : false,
     missedFlick: detector ? detector.state.missedFlick : null,
+    roll: detector ? detector.state.roll : null,
     lift: raiser ? raiser.state.lift : null,
     listening: voice !== null && voice.micOn,
     heard: voice ? voice.heard : '',
@@ -103,7 +104,7 @@ export function setDeepgramKey(key) {
 function loadCalibration() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return saved && saved.twistAxis && saved.flickAxis && Array.isArray(saved.gravity) ? saved : null;
+    return saved && saved.twistAxis && saved.flickAxis && saved.rollSign && Array.isArray(saved.gravity) ? saved : null;   // older saves lack rollSign: calibrate again
   } catch { return null; }                     // no storage (tests) or a broken entry
 }
 

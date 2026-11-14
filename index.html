@@ -41,6 +41,7 @@
     <tr><td>Twist axis</td><td id="twistAxis">--</td></tr>
     <tr><td>Flick axis</td><td id="flickAxis">--</td></tr>
     <tr><td>Tap before double-tap</td><td id="tapCheck">--</td></tr>
+    <tr><td>Wrist turn</td><td id="roll">--</td></tr>
     <tr><td>Last flick not counted</td><td id="missedFlick">--</td></tr>
     <tr><td>Arm lift</td><td id="lift">--</td></tr>
   </table>
@@ -156,6 +157,7 @@
     const t = state.tapCheck;
     $('tapCheck').textContent = t.doubleTaps === 0 ? 'double-tap a few times to check' : t.withTapBefore + ' of ' + t.doubleTaps + ' double-taps';
     $('missedFlick').textContent = state.missedFlick || '--';
+    $('roll').textContent = state.roll === null ? '--' : state.roll.toFixed(0) + ' deg from rest';
     $('lift').textContent = state.lift === null ? (cal ? 'calibrate again to add the raise pose' : '--')
       : state.lift.toFixed(0) + ' deg  (microphone above ' + remote.CONFIG.raiseDegrees + ')';
     $('sending').textContent = state.listening ? "The band's microphone is being sent to Deepgram now. Lower your arm to stop." : '';

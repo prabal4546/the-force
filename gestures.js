@@ -16,16 +16,25 @@ export const CONFIG = {
                             //       open the clutch. false: plain angle between gravity directions.
   gravitySmoothing: 0.1,    // 0..1, share of each new sample in the gravity estimate
 
-  // Twist
-  twistMinDps: 30,          // integrate only above this turning speed
-  twistStepDegrees: 15,     // one adjust message per this many degrees
-  adjustStep: 0.05,         // the delta in each adjust message
-  twistEndMs: 250,          // a twist is over after this long below twistMinDps
+  // Wrist angle (roll about the forearm): the gyro for speed, gravity to stop it drifting
+  rollBlend: 0.02,          // share of the gravity reading pulled into the angle on each sample
+  stillDps: 25,             // below this on both axes the wrist counts as resting
+  stillMs: 300,             // resting this long makes the current angle the new zero
 
-  // Flick
-  flickMinDps: 250,         // spike on the flick axis must exceed this
+  // Twist: turn away from the resting angle to adjust; turning back is free
+  twistMinDps: 30,          // a twist only starts while turning at least this fast
+  twistStepDegrees: 15,     // one adjust message per this many degrees turned away
+  adjustStep: 0.05,         // the delta in each adjust message
+  neutralDegrees: 10,       // back within this of the resting angle, the twist is over
+  twistHoldMs: 4000,        // held still this long while turned, that angle becomes the new zero
+
+  // Flick: a short spike on the flick axis that is stronger than the twist axis
+  flickMinDps: 250,         // the spike must exceed this ...
+  flickPeakShare: 0.5,      // ... or this share of the wearer's calibrated flick, if that is less
+  flickFloorDps: 150,       // but never less than this
   flickMaxMs: 200,          // and must be shorter than this
-  flickMaxTwistDps: 120,    // "twist-free": twist axis stays below this during the spike
+  flickDominance: 1.5,      // flick axis at least this many times the twist axis ("twist-free")
+  peakMemoryMs: 120,        // how long a peak is remembered when comparing the two axes
 
   // Taps
   tapBeforeDoubleTap: true, // the band sends a tap before a double-tap: hold toggle back
@@ -104,12 +113,18 @@ export function computeCalibration(level, twist, flick, raise = null, config = C
   if (flickEnergy[flickAxis] < config.minPoseDps) {
     throw new Error('The flick pose hardly moved. Flick your hand side to side for the whole 2 seconds.');
   }
+  const gravity = meanGravity(level);
+  const bias = {};                                 // what the gyro reads while the arm is still
+  for (const axis of GYRO) bias[axis] = level.reduce((sum, s) => sum + s[axis], 0) / level.length;
   const calibration = {
-    gravity: meanGravity(level),
+    gravity,
+    bias,
     twistAxis,
     flickAxis,
     twistSign: firstSwingSign(twist, twistAxis, config.swingSignDps),
     flickSign: firstSwingSign(flick, flickAxis, config.swingSignDps),
+    rollSign: rollDirection(twist, twistAxis, gravity),
+    flickPeak: percentile(flick.map((s) => Math.abs(s[flickAxis] - bias[flickAxis])), 0.95),
   };
   if (raise && raise.length >= 10) {               // which way is "up", and how far the raise pose went
     const lift = elevation(meanGravity(raise), twistAxis) - elevation(calibration.gravity, twistAxis);
@@ -117,6 +132,44 @@ export function computeCalibration(level, twist, flick, raise = null, config = C
     calibration.raiseDegrees = Math.abs(lift);
   }
   return calibration;
+}
+
+const wrap = (degrees) => ((degrees + 540) % 360) - 180;          // into -180..180
+
+function percentile(values, share) {
+  const sorted = [...values].sort((x, y) => x - y);
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * share))];
+}
+
+/**
+ * Wrist roll about the forearm (twist) axis as gravity shows it, in degrees from the level
+ * pose. Drift-free but shaky while the hand moves. Null when gravity lies along the forearm.
+ */
+export function gravityRoll(accel, twistAxis, levelGravity) {
+  const t = GYRO.indexOf(twistAxis), p = (t + 1) % 3, q = (t + 2) % 3;
+  if (Math.hypot(accel[p], accel[q]) < 0.4) return null;
+  return wrap((Math.atan2(accel[q], accel[p]) - Math.atan2(levelGravity[q], levelGravity[p])) * DEG);
+}
+
+/** +1 when the gyro's twist axis and gravityRoll turn the same way, -1 when opposite. */
+function rollDirection(twist, twistAxis, levelGravity) {
+  let agreement = 0;
+  const gap = 5;                                   // compare over 5 samples: steadier than one
+  for (let i = gap; i < twist.length; i++) {
+    const now = gravityRoll(ACCEL.map((k) => twist[i][k]), twistAxis, levelGravity);
+    const before = gravityRoll(ACCEL.map((k) => twist[i - gap][k]), twistAxis, levelGravity);
+    if (now === null || before === null) continue;
+    let turned = 0;
+    for (let j = i - gap + 1; j <= i; j++) turned += twist[j][twistAxis];
+    agreement += wrap(now - before) * turned;
+  }
+  return agreement < 0 ? -1 : 1;
+}
+
+/** The flick threshold for this wearer: the fixed one, or lower for a gentle calibrated flick. */
+export function flickThreshold(calibration, config = CONFIG) {
+  if (!calibration.flickPeak) return config.flickMinDps;
+  return Math.min(config.flickMinDps, Math.max(config.flickFloorDps, calibration.flickPeak * config.flickPeakShare));
 }
 
 /** Forearm elevation in degrees: how far gravity leans along the twist (forearm) axis. */
@@ -172,34 +225,64 @@ export function clutchAngle(gravity, calibration, config = CONFIG) {
  * the outgoing messages each call produces (usually none).
  *   update(sample)   sample = { t, ax, ay, az, gx, gy, gz }
  *   tap(kind, t)     kind = 'tap' or 'double-tap'
- *   state            { clutch, angle, twisting } for the page
+ *   state            { clutch, angle, twisting, roll, missedFlick } for the page
+ *
+ * How it decides, borrowed from how watches do it:
+ * - It tracks the wrist's real angle (gyro, kept honest by gravity), not raw turning speed.
+ * - Twist is measured from where the wrist was resting. Turning away sends adjusts, turning
+ *   back sends nothing, so one twist never undoes itself.
+ * - Twist or flick is decided by which axis is stronger at that moment, not by fixed limits.
+ * - One action per motion, then a cooldown.
  */
 export function createDetector(calibration, config = CONFIG) {
-  let gravity = null;          // smoothed gravity estimate
+  const bias = calibration.bias || { gx: 0, gy: 0, gz: 0 };
+  const flickMin = flickThreshold(calibration, config);
+  const cw = (calibration.rollSign || 1) * calibration.twistSign;   // turns the tracked angle clockwise-positive
+  let gravity = null;          // smoothed gravity estimate, for the clutch
+  let roll = null;             // wrist angle in gravityRoll's direction, degrees
+  let zero = 0;                // the resting angle twists are measured from (clockwise-positive)
+  let stillSince = null;
   let lastT = null;
   let cooldownUntil = -Infinity;
-  let turned = 0;              // degrees turned since the last adjust
-  let lastTwistT = -Infinity;
-  let twisting = false;        // a twist has sent at least one adjust and is not over yet
-  let spike = null;            // flick candidate: { start, sign, clean }
+  let twist = null;            // the twist in progress: { side, steps }
+  let spike = null;            // flick candidate: { start, sign, flick, twist }
+  let peakFlick = 0;           // recent peaks on the two axes, fading
+  let peakTwist = 0;
   let toggleAt = null;         // a held-back toggle fires at this time
-  const state = { clutch: false, angle: null, twisting: false, missedFlick: null };
+  const state = { clutch: false, angle: null, twisting: false, roll: 0, missedFlick: null };
 
   function endTwist(t) {
-    if (twisting) cooldownUntil = t + config.cooldownMs;
-    twisting = false;
-    turned = 0;
+    if (twist && twist.steps > 0) cooldownUntil = t + config.cooldownMs;
+    twist = null;
   }
 
   function update(s) {
     const out = [];
     const dt = lastT === null ? 0 : Math.max(0, Math.min(0.05, (s.t - lastT) / 1000));
     lastT = s.t;
-
     const accel = [s.ax, s.ay, s.az];
+    const twistRate = (s[calibration.twistAxis] - bias[calibration.twistAxis]) * calibration.twistSign;   // clockwise-positive
+    const flickRate = (s[calibration.flickAxis] - bias[calibration.flickAxis]) * calibration.flickSign;   // right-positive
+
     gravity = gravity === null ? accel : gravity.map((g, i) => g + config.gravitySmoothing * (accel[i] - g));
     state.angle = clutchAngle(gravity, calibration, config);
     state.clutch = state.angle <= config.clutchDegrees;
+
+    // Wrist angle: integrate the gyro, and lean on gravity while the hand is not being shaken.
+    const seen = gravityRoll(accel, calibration.twistAxis, calibration.gravity);
+    if (roll === null) roll = seen === null ? 0 : seen;
+    else {
+      roll = wrap(roll + twistRate * cw * dt);
+      if (seen !== null && Math.abs(Math.hypot(...accel) - 1) < 0.2) roll = wrap(roll + config.rollBlend * wrap(seen - roll));
+    }
+    const angle = roll * cw;                             // clockwise-positive
+
+    const fade = Math.exp(-dt * 1000 / config.peakMemoryMs);
+    peakFlick = Math.max(Math.abs(flickRate), peakFlick * fade);
+    peakTwist = Math.max(Math.abs(twistRate), peakTwist * fade);
+    const still = Math.abs(twistRate) < config.stillDps && Math.abs(flickRate) < config.stillDps;
+    if (!still) stillSince = null; else if (stillSince === null) stillSince = s.t;
+    const stillFor = stillSince === null ? 0 : s.t - stillSince;
 
     if (toggleAt !== null && s.t >= toggleAt) {          // no double-tap came: the tap was a toggle
       toggleAt = null;
@@ -207,62 +290,65 @@ export function createDetector(calibration, config = CONFIG) {
       cooldownUntil = s.t + config.cooldownMs;
     }
 
-    if (!state.clutch) { endTwist(s.t); spike = null; }
-    else if (s.t < cooldownUntil) { turned = 0; spike = null; }
+    if (!state.clutch) { endTwist(s.t); spike = null; zero = angle; }
+    else if (s.t < cooldownUntil) { spike = null; if (!twist && stillFor >= config.stillMs) zero = angle; }
     else {
-      const twist = s[calibration.twistAxis] * calibration.twistSign;
-      const flick = s[calibration.flickAxis] * calibration.flickSign;
-
-      if (!twisting) {                                   // flick: a short, twist-free spike
+      if (!twist) {                                      // flick: a short spike, stronger than the twist axis
         if (spike === null) {
-          if (Math.abs(flick) >= config.flickMinDps && Math.abs(twist) < config.flickMaxTwistDps) {
-            spike = { start: s.t, sign: flick > 0 ? 1 : -1, clean: true, twist: 0 };
-          }
+          if (Math.abs(flickRate) >= flickMin) spike = { start: s.t, sign: flickRate > 0 ? 1 : -1, flick: peakFlick, twist: peakTwist };
         } else {
-          spike.twist = Math.max(spike.twist, Math.abs(twist));
-          if (Math.abs(twist) >= config.flickMaxTwistDps) spike.clean = false;
-          if (Math.abs(flick) < config.flickMinDps) {
+          spike.flick = Math.max(spike.flick, Math.abs(flickRate));
+          spike.twist = Math.max(spike.twist, Math.abs(twistRate));
+          if (Math.abs(flickRate) < flickMin) {
             const ms = s.t - spike.start;
-            if (spike.clean && ms < config.flickMaxMs) {
+            if (ms >= config.flickMaxMs) state.missedFlick = `too long: ${Math.round(ms)} ms`;
+            else if (spike.flick < config.flickDominance * spike.twist) {
+              state.missedFlick = `twist in it: flick ${Math.round(spike.flick)}, twist ${Math.round(spike.twist)} deg/s`;
+            } else {
               out.push({ type: 'step', direction: spike.sign });
               cooldownUntil = s.t + config.cooldownMs;
               state.missedFlick = null;
-            } else {                                      // say why, so thresholds can be tuned
-              state.missedFlick = spike.clean ? `too long: ${Math.round(ms)} ms` : `twist in it: ${Math.round(spike.twist)} deg/s`;
             }
             spike = null;
           }
         }
       }
 
-      if (spike !== null) turned = 0;                    // a flick in progress is not a twist
-      else if (s.t >= cooldownUntil) {
-        if (Math.abs(twist) >= config.twistMinDps) {
-          turned += twist * dt;
-          lastTwistT = s.t;
-          while (Math.abs(turned) >= config.twistStepDegrees) {
-            const sign = turned > 0 ? 1 : -1;
-            out.push({ type: 'adjust', delta: sign * config.adjustStep });
-            turned -= sign * config.twistStepDegrees;
-            twisting = true;
-          }
-        } else if (s.t - lastTwistT > config.twistEndMs) endTwist(s.t);
+      const away = wrap(angle - zero);                   // degrees turned from the resting angle
+      if (!twist) {
+        if (stillFor >= config.stillMs) zero = angle;    // resting: this is the new zero
+        else if (spike === null && s.t >= cooldownUntil && peakTwist >= peakFlick
+          && Math.abs(away) >= config.twistStepDegrees && Math.abs(twistRate) >= config.twistMinDps
+          && Math.sign(twistRate) === Math.sign(away)) {
+          twist = { side: Math.sign(away), steps: 0 };
+        }
+      }
+      if (twist) {
+        const steps = Math.floor((twist.side * away) / config.twistStepDegrees);
+        while (twist.steps < steps) {                    // further away than before: one adjust per step
+          out.push({ type: 'adjust', delta: twist.side * config.adjustStep });
+          twist.steps += 1;
+        }
+        if (twist.side * away <= config.neutralDegrees) endTwist(s.t);                  // came back
+        else if (stillFor >= config.twistHoldMs) { endTwist(s.t); zero = angle; }       // stayed turned
       }
     }
 
-    state.twisting = twisting;
+    state.twisting = twist !== null;
+    state.roll = wrap(angle - zero);
     return out;
   }
 
   function tap(kind, t) {
+    const busy = twist !== null || spike !== null;
     if (kind === 'double-tap') {
       const held = toggleAt !== null;
       toggleAt = null;                                   // the tap before it was not a toggle
-      if (twisting || spike !== null || (t < cooldownUntil && !held)) return [];
+      if (busy || (t < cooldownUntil && !held)) return [];
       cooldownUntil = t + config.cooldownMs;
       return [{ type: 'select' }];
     }
-    if (twisting || spike !== null || t < cooldownUntil || toggleAt !== null) return [];
+    if (busy || t < cooldownUntil || toggleAt !== null) return [];
     if (config.tapBeforeDoubleTap) { toggleAt = t + config.tapDelayMs; return []; }
     cooldownUntil = t + config.cooldownMs;
     return [{ type: 'toggle' }];
