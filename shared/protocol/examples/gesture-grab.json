@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "id": "gesture-14",
+  "type": "gesture.detected",
+  "gesture": "grab",
+  "confidence": 0.93
+}

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "id": "tracking-8",
+  "type": "tracking.state",
+  "target": "personBlue",
+  "state": "tracking"
+}

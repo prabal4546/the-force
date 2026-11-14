@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyos.local/protocol/events.schema.json",
+  "title": "BodyOS wire message",
+  "type": "object",
+  "required": ["version", "id", "type"],
+  "properties": {
+    "version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "replyTo": { "type": "string", "minLength": 1 },
+    "type": {
+      "enum": [
+        "hello",
+        "ping",
+        "pong",
+        "gesture.detected",
+        "target.detected",
+        "window.capture",
+        "window.captured",
+        "window.move",
+        "window.moved",
+        "vexo.led",
+        "tracking.state",
+        "error"
+      ]
+    },
+    "gesture": { "enum": ["grab", "throw"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "target": {
+      "enum": ["mac", "externalDisplay", "gimbal", "personRed", "personBlue"]
+    },
+    "token": { "type": "string" },
+    "title": { "type": "string" },
+    "destination": { "enum": ["externalDisplay"] },
+    "success": { "type": "boolean" },
+    "state": { "enum": ["idle", "searching", "tracking", "lost", "failure"] },
+    "color": { "enum": ["off", "yellow", "green", "red", "blue", "white"] },
+    "code": { "type": "string" },
+    "message": { "type": "string" }
+  },
+  "additionalProperties": true
+}

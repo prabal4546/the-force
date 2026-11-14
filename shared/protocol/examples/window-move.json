@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "id": "command-21",
+  "type": "window.move",
+  "token": "demo-window-token",
+  "destination": "externalDisplay"
+}

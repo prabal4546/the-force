@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bodyos-mac-runtime"
+version = "0.1.0"
+description = "Local Vexo and macOS window bridge for the BodyOS demo"
+requires-python = ">=3.9"
+dependencies = [
+  "websockets>=14,<16",
+  "bleak>=0.22,<1"
+]
+
+[project.optional-dependencies]
+mac = [
+  "pyobjc-framework-Cocoa>=10,<12",
+  "pyobjc-framework-Quartz>=10,<12"
+]
+dev = []
+
+[project.scripts]
+bodyos-mac = "bodyos_mac.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
