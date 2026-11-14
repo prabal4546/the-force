@@ -1,0 +1,890 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Band remote</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --text: #16181d; --muted: #667085; --line: #e3e6eb;
+    --accent: #2563eb; --good: #15803d; --good-bg: #dcfce7; --warn: #b45309; --warn-bg: #fef3c7;
+    --bad: #b91c1c; --idle-bg: #eceef2; --blue-bg: #dbeafe;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101216; --card: #1a1d23; --text: #eef0f4; --muted: #98a2b3; --line: #2c313a;
+      --accent: #60a5fa; --good: #4ade80; --good-bg: #14321f; --warn: #fbbf24; --warn-bg: #3a2c0c;
+      --bad: #f87171; --idle-bg: #262a32; --blue-bg: #172a4a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { font: 16px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px 16px 60px; }
+  main { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
+  h1 { font-size: 24px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .spread { justify-content: space-between; }
+  button { font: inherit; padding: 8px 16px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  .pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; background: var(--idle-bg); color: var(--muted); }
+  .pill.good { background: var(--good-bg); color: var(--good); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.blue { background: var(--blue-bg); color: var(--accent); }
+  #status { min-height: 22px; }
+
+  /* Gestures */
+  .gestures { display: grid; grid-template-columns: 150px 1fr; gap: 24px; align-items: center; }
+  #dial { width: 140px; height: 140px; border: 4px solid var(--line); border-radius: 50%; position: relative; }
+  #needle { position: absolute; left: 50%; top: 8px; width: 5px; height: 62px; margin-left: -2.5px; background: var(--accent); transform-origin: 50% 100%; border-radius: 3px; transition: transform .08s linear; }
+  #level { position: absolute; left: 0; right: 0; bottom: 20px; text-align: center; font-weight: 700; font-size: 18px; }
+  #gesture { font-size: 26px; font-weight: 700; min-height: 38px; margin-bottom: 12px; }
+  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 8px 4px; text-align: center; font-size: 13px; color: var(--muted); transition: background .4s, color .4s, border-color .4s; }
+  .tile b { display: block; font-size: 22px; font-weight: 400; }
+  .tile.hit { background: var(--accent); border-color: var(--accent); color: #fff; transition: none; }
+  .meter { margin-top: 14px; }
+  .meter label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .track { position: relative; height: 14px; background: var(--idle-bg); border-radius: 7px; overflow: hidden; }
+  .track i { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 7px; }
+  .track u { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .55; }
+  @media (max-width: 560px) { .gestures { grid-template-columns: 1fr; justify-items: center; } .tiles { grid-template-columns: repeat(3, 1fr); } }
+
+  /* Messages, voice, details */
+  #log { font: 13px/1.5 ui-monospace, monospace; white-space: pre; height: 190px; overflow: auto; background: var(--idle-bg); border-radius: 9px; padding: 10px 12px; }
+  input[type=password] { font: inherit; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 250px; max-width: 100%; }
+  #sending { color: var(--bad); font-weight: 600; min-height: 22px; }
+  #heard { font-size: 18px; min-height: 28px; }
+  #heard b { color: var(--accent); }
+  input[type=text] { font: inherit; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 150px; }
+  input[type=color] { width: 44px; height: 38px; padding: 2px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); }
+  input[type=number] { font: inherit; padding: 6px 8px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 76px; }
+  #swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 6px; border: 1px solid var(--line); }
+  body.error main { outline: 4px solid var(--bad); outline-offset: 6px; border-radius: 18px; }
+  kbd { font: 13px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; }
+  details summary { cursor: pointer; font-weight: 600; }
+  #readouts { margin: 12px 0; font-size: 14px; }
+  #readouts td { padding: 2px 16px 2px 0; }
+  #readouts td:last-child { font-family: ui-monospace, monospace; }
+  .graph { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+  .graph span { width: 110px; font: 13px ui-monospace, monospace; }
+  canvas { border: 1px solid var(--line); border-radius: 6px; width: 380px; max-width: 100%; height: 70px; }
+  #taps { font: 13px ui-monospace, monospace; white-space: pre; height: 100px; overflow-y: auto; background: var(--idle-bg); border-radius: 9px; padding: 8px 12px; }
+
+  body.one #dial, body.one #tile-adjust { display: none; }
+  body.sweep #rollMeter, body.tilt #swipeMeter { display: none; }
+  body.tilt .steps { grid-template-columns: repeat(2, 1fr); }
+  #rollTrack u { display: none; }
+  body.tilt #rollTrack u { display: block; }
+  body.tilt #rollTrack.hit i { background: var(--good); }
+  body.one .gestures { grid-template-columns: 1fr; }
+  body.one .tiles { grid-template-columns: repeat(4, 1fr); }
+
+  /* Fine tuning */
+  .tune { display: grid; grid-template-columns: 190px 1fr 92px; gap: 2px 14px; align-items: center; margin-top: 14px; }
+  .tune label { font-weight: 600; font-size: 15px; }
+  .tune input[type=range] { width: 100%; accent-color: var(--accent); }
+  .tune output { font: 14px ui-monospace, monospace; text-align: right; }
+  .tune output.changed { color: var(--accent); font-weight: 700; }
+  .tune small { grid-column: 1 / -1; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  #tuneText { font: 13px/1.5 ui-monospace, monospace; white-space: pre; background: var(--idle-bg); border-radius: 9px; padding: 10px 12px; margin-top: 10px; display: none; overflow-x: auto; }
+  @media (max-width: 560px) { .tune { grid-template-columns: 1fr 92px; } .tune label { grid-column: 1 / -1; } }
+
+  /* Calibration */
+  #wizard { position: fixed; inset: 0; background: rgba(8, 10, 14, .62); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  #wizard.open { display: flex; }
+  .sheet { background: var(--card); border-radius: 18px; padding: 26px 28px; width: 520px; max-width: 100%; text-align: center; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 22px; }
+  .steps div { font-size: 12px; color: var(--muted); border-top: 4px solid var(--line); padding-top: 6px; }
+  .steps div.now { color: var(--text); border-color: var(--accent); font-weight: 700; }
+  .steps div.done { color: var(--good); border-color: var(--good); }
+  #wizIcon { font-size: 60px; line-height: 1; }
+  #wizTitle { font-size: 26px; font-weight: 700; margin: 10px 0 6px; }
+  #wizText { color: var(--muted); min-height: 46px; }
+  #wizPhase { height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  #wizCount { font-size: 64px; font-weight: 800; line-height: 1; color: var(--accent); }
+  #wizCount.ok { color: var(--good); }
+  #wizLabel { font-weight: 700; letter-spacing: .05em; text-transform: uppercase; font-size: 14px; }
+  #wizLabel.rec { color: var(--bad); }
+  #wizBar { width: 100%; height: 12px; background: var(--idle-bg); border-radius: 6px; overflow: hidden; visibility: hidden; }
+  #wizBar i { display: block; height: 100%; width: 0; background: var(--bad); }
+  #wizMotion { width: 100%; height: 6px; background: var(--idle-bg); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  #wizMotion i { display: block; height: 100%; width: 0; background: var(--accent); }
+  #wizProblem { color: var(--bad); font-weight: 600; min-height: 48px; margin-top: 10px; }
+  #wizSummary { text-align: left; margin: 12px auto 0; font-size: 15px; display: none; }
+  #wizSummary td { padding: 3px 14px 3px 0; }
+</style>
+
+<main>
+  <header class="card">
+    <div class="row spread">
+      <h1 id="title">Band remote</h1>
+      <span id="link" class="pill">Not connected</span>
+    </div>
+    <div class="row" style="margin-top: 14px">
+      <button id="connect" class="primary">Connect</button>
+      <button id="disconnect" disabled>Disconnect</button>
+      <button id="calibrate" disabled>Calibrate</button>
+      <span class="muted">Battery <b id="battery">--</b></span>
+      <span id="active" class="pill"><i id="swatch"></i><span id="activeName">No active device</span></span>
+    </div>
+    <p id="status" class="muted" style="margin: 12px 0 0">Before each connect: double-tap the band, and close any other tab that uses it.</p>
+  </header>
+
+  <section class="card">
+    <div class="row spread" style="margin-bottom: 12px">
+      <h2 style="margin: 0">Gestures</h2>
+      <span id="clutch" class="pill">--</span>
+    </div>
+    <div class="gestures">
+      <div id="dial"><i id="needle"></i><div id="level">0.50</div></div>
+      <div>
+        <div id="gesture">&nbsp;</div>
+        <div class="tiles">
+          <div class="tile" id="tile-adjust"><b>🔄</b>Twist</div>
+          <div class="tile" id="tile-step"><b id="stepIcon">👋</b><span id="stepName">Swipe</span></div>
+          <div class="tile" id="tile-toggle"><b>☝️</b>Tap</div>
+          <div class="tile" id="tile-select"><b>✌️</b>Double-tap</div>
+          <div class="tile" id="tile-command"><b>🎙️</b>Voice</div>
+        </div>
+        <div class="meter" id="rollMeter">
+          <label><span>Wrist turn</span><span id="rollText">--</span></label>
+          <div class="track" id="rollTrack"><i id="rollBar"></i><u id="rollLeft"></u><u id="rollRight"></u></div>
+        </div>
+        <div class="meter" id="swipeMeter">
+          <label><span id="swipeLabel">Swipe strength (line = how hard a swipe must be)</span><span id="swipeText">--</span></label>
+          <div class="track"><i id="swipeBar" style="left: 0"></i><u id="swipeMark"></u></div>
+        </div>
+      </div>
+    </div>
+    <div class="row" id="armRow" style="margin-top: 14px">
+      <span class="muted">Band is on my</span>
+      <button id="arm-left">Left arm</button>
+      <button id="arm-right">Right arm</button>
+      <span class="muted">the easy way to tip is outward, so each arm gets its own distances</span>
+    </div>
+    <p id="whyNot" class="muted" style="margin: 12px 0 0; min-height: 20px"></p>
+    <p class="muted" id="howTo" style="margin: 8px 0 0">Hold your forearm level with your <b>thumb up</b>, like holding a mug: from there the wrist can turn both ways.
+      Twist away from rest to adjust (turning back is free), swipe your forearm sideways, pivoting at the elbow (left or right in the room, however your wrist is turned) to step, tap or double-tap the band.</p>
+  </section>
+
+  <section class="card">
+    <div class="row spread" style="margin-bottom: 12px">
+      <h2 style="margin: 0">Voice</h2>
+      <span id="micState" class="pill">Off</span>
+    </div>
+    <div class="row">
+      <input id="deepgramKey" type="password" placeholder="Paste Deepgram key, press Enter" autocomplete="off">
+      <button id="forgetKey">Forget key</button>
+      <button id="mute">Mute</button>
+    </div>
+    <p id="heard" style="margin-top: 14px"></p>
+    <p class="muted">Say <b>“Vexo”</b> and then what you want, or hold <kbd>Space</kbd> and just speak.</p>
+    <div class="meter">
+      <label><span>Loudness at the band (line = about where a close voice sits)</span><span id="loudText">--</span></label>
+      <div class="track"><i id="loudBar" style="left: 0"></i><u style="left: 55%"></u></div>
+    </div>
+    <div class="row" style="margin-top: 12px">
+      <label class="muted" for="gain">Mic gain, dB</label>
+      <input id="gain" type="number" min="-20" max="20" step="1">
+      <span class="muted">lower = only a voice near the wrist. Put the value you like into <code>micGainDb</code> in CONFIG.</span>
+    </div>
+    <p id="sending" style="margin-top: 12px"></p>
+    <p class="muted">The microphone is on from connect: everything it hears, from everyone nearby, goes over the internet to Deepgram.
+      Tell the people near you, and press Mute when you are not using it. The key stays in this tab only and is gone when the tab closes.</p>
+  </section>
+
+  <section class="card">
+    <div class="row spread" style="margin-bottom: 12px">
+      <h2 style="margin: 0">Incoming messages</h2>
+      <span id="speechState" class="pill">No key</span>
+    </div>
+    <div class="row">
+      <input id="elevenKey" type="password" placeholder="Paste ElevenLabs key, press Enter" autocomplete="off">
+      <button id="forgetEleven">Forget key</button>
+    </div>
+    <p class="muted" style="margin: 10px 0 14px">For <code>say</code>: the text goes to ElevenLabs and plays through this computer's speaker. The key stays in this tab only.</p>
+    <p class="muted">Send a test message, as the hub would:</p>
+    <div class="row">
+      <input id="testDevice" type="text" value="lamp" aria-label="Device">
+      <input id="testColor" type="color" value="#ffaa00" aria-label="Colour">
+      <button id="testActive">active</button>
+    </div>
+    <div class="row" style="margin-top: 8px">
+      <input id="testText" type="text" value="Lamp" aria-label="Text to say">
+      <button id="testSay">say</button>
+      <button id="testError">error</button>
+    </div>
+    <p class="muted" style="margin: 10px 0 0">With the microphone on, the band's light stays blue, so <code>active</code> and <code>error</code> show on this page. Muted, they also set the band's light.</p>
+  </section>
+
+  <section class="card">
+    <div class="row spread" style="margin-bottom: 12px">
+      <h2 style="margin: 0">Outgoing messages</h2>
+      <span id="hub" class="pill">Device API: not tried yet</span>
+    </div>
+    <div id="log"></div>
+    <p id="hubText" class="muted" style="margin: 10px 0 0"></p>
+  </section>
+
+  <section class="card">
+    <details id="tuning">
+      <summary>Fine tuning <span id="tuneCount" class="muted"></span></summary>
+      <p class="muted" style="margin: 10px 0 0">Each slider takes effect at once and is kept in this browser. Try a gesture after each change:
+        the line under the tiles says why a movement was not counted.</p>
+      <div class="tune" id="tuneRows"></div>
+      <div class="row" style="margin-top: 6px">
+        <button id="tuneReset">Back to defaults</button>
+        <button id="tuneCopy">Copy for CONFIG</button>
+        <span class="muted">to keep the values for everyone, paste them into <code>CONFIG</code> in <code>gestures.js</code></span>
+      </div>
+      <div id="tuneText"></div>
+    </details>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Sensor details</summary>
+      <table id="readouts">
+        <tr><td>Arm from level</td><td id="angle">--</td></tr>
+        <tr><td>Twist axis</td><td id="twistAxis">--</td></tr>
+        <tr><td>Swipe axis</td><td id="swipeAxis">--</td></tr>
+        <tr><td>Tap before double-tap</td><td id="tapCheck">--</td></tr>
+        <tr><td>Last movement</td><td id="movement">--</td></tr>
+        <tr><td>Motion rate</td><td id="motionRate">--</td></tr>
+      </table>
+      <p><button id="saveMotion">Save last 10 s of motion</button> <span class="muted">a file for tuning a gesture that is not recognised</span></p>
+      <p class="muted">Last 10 seconds. Acceleration in g, turning in deg/s.</p>
+      <div id="graphs"></div>
+      <p class="muted" style="margin-top: 12px">Taps the band reported</p>
+      <div id="taps"></div>
+    </details>
+  </section>
+</main>
+
+<div id="wizard">
+  <div class="sheet">
+    <div class="steps" id="wizSteps"></div>
+    <div id="wizIcon"></div>
+    <div id="wizTitle"></div>
+    <div id="wizText"></div>
+    <div id="wizPhase">
+      <div id="wizCount"></div>
+      <div id="wizLabel"></div>
+      <div id="wizBar"><i></i></div>
+    </div>
+    <div id="wizMotion"><i></i></div>
+    <div id="wizProblem"></div>
+    <table id="wizSummary"></table>
+    <div class="row" style="justify-content: center; margin-top: 8px">
+      <button id="wizRetry" class="primary" style="display: none">Try again</button>
+      <button id="wizCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>  // a double-clicked file cannot load the library: say so on the page
+  if (location.protocol === 'file:') document.getElementById('status').textContent =
+    'Opened by double-click. In ~/vexo-remote run:  python3 -m http.server 8000 --bind 127.0.0.1  then open http://localhost:8000/index.html';
+</script>
+<script type="module">
+  import { Band, SimTransport } from './vexo-open-kit/js/src/index.js';
+  import * as remote from './band-module.js';
+  import { bandDeviceId, createHubLink, hubPost } from './hub.js';
+
+  const BAND = 28;                                   // our team's band number: Vexo-HACK-28
+  const SIM = location.search.includes('sim');       // index.html?sim = pretend band, no hardware
+  const NAME = 'Vexo-HACK-' + String(BAND).padStart(2, '0');
+  const $ = (id) => document.getElementById(id);
+  const say = (text) => { $('status').textContent = text; };
+  const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+  let band = null;
+  let bandOn = false;                                // a band is connected right now
+  let latest = null;                                 // the newest motion sample
+  let sound = null;                                  // for the short beeps
+  document.title = $('title').textContent = 'Band ' + BAND + ' remote';
+
+  // ---- Sensor details: one small graph per motion value, the last 10 seconds ----
+  const RATE = remote.CONFIG.motionRate;             // readings a second
+  const POINTS = RATE * 10;
+  const recent = [];                                 // raw samples, for "Save last 10 s of motion"
+  const graphs = [['ax', 1.5], ['ay', 1.5], ['az', 1.5], ['gx', 100], ['gy', 100], ['gz', 100]].map(([name, minScale]) => {
+    const row = document.createElement('div');
+    row.className = 'graph';
+    const label = document.createElement('span');
+    const canvas = document.createElement('canvas');
+    canvas.width = 760; canvas.height = 140;         // twice the shown size, for sharp lines
+    row.append(label, canvas);
+    $('graphs').append(row);
+    return { name, minScale, label, canvas, values: [] };
+  });
+
+  function drawGraphs() {
+    if (!document.querySelector('details').open) return;   // hidden: nothing to draw
+    const line = getComputedStyle(document.body).getPropertyValue('--line'), accent = getComputedStyle(document.body).getPropertyValue('--accent');
+    for (const g of graphs) {
+      const c = g.canvas.getContext('2d'), w = g.canvas.width, h = g.canvas.height;
+      const last = g.values[g.values.length - 1];
+      const scale = Math.max(g.minScale, ...g.values.map(Math.abs));   // the graph spans -scale..+scale
+      g.label.textContent = g.name + ' ' + (last === undefined ? '--' : last.toFixed(g.minScale < 10 ? 2 : 1));
+      c.clearRect(0, 0, w, h);
+      c.strokeStyle = line; c.lineWidth = 1;         // the zero line
+      c.beginPath(); c.moveTo(0, h / 2); c.lineTo(w, h / 2); c.stroke();
+      c.strokeStyle = accent; c.lineWidth = 2;
+      c.beginPath();
+      g.values.forEach((v, i) => {
+        const x = w - (g.values.length - 1 - i) * (w / (POINTS - 1));   // newest at the right edge
+        const y = h / 2 - (v / scale) * (h / 2 - 4);
+        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      });
+      c.stroke();
+    }
+  }
+
+  // ---- Gestures: dial, tiles, meters, message log ----
+  const MODE = remote.CONFIG.gestures;               // 'tilt', 'leftRight' or 'twistAndSwipe'
+  const TURN = MODE === 'turn';
+  const TILT = MODE === 'tilt' || TURN;              // the wrist gestures: both read the wrist about the forearm only
+  const ONE = MODE !== 'twistAndSwipe';              // one gesture, left and right, instead of twist and swipe
+  if (ONE) {
+    document.body.classList.add('one', TILT ? 'tilt' : 'sweep');
+    $('stepIcon').textContent = '↔️';
+    $('stepName').textContent = 'Left / Right';
+    $('swipeLabel').textContent = 'Sweep strength (line = how hard a sweep must be)';
+    $('howTo').innerHTML = TURN
+      ? 'Hold your forearm level. <b>Turn your wrist quickly to the right or to the left</b>, like turning a key: each quick turn is one step in its direction. '
+        + 'A slow turn does not count, so to step the same way twice turn quickly, come back slowly, and turn quickly again. '
+        + 'Keep the arm itself still while you turn. Tap or double-tap the band for the other two.'
+      : TILT
+        ? 'Hold your forearm level and still for a moment: that is the centre. Then, <b>keeping the arm itself still, tip your wrist right or left, like turning a key, and come back</b>. '
+          + 'Each tip past the line is one step; coming back sends nothing. Tap or double-tap the band for the other two.'
+        : 'Hold your forearm level and still, then move it <b>right or left</b>: sweep the forearm sideways, pivoting at the elbow, '
+          + 'or turn your wrist (clockwise is right). Each one is a step; coming back is free. Tap or double-tap the band for the other two.';
+  }
+  let dial = 0.5;                                    // what the adjust messages add up to, 0..1
+  let swipePeak = 0;                                 // a fading peak, so a short swipe stays visible
+  const logLines = [];                               // newest first: { time, name, json, count, at }
+
+  function gestureName(message) {
+    if (message.type === 'adjust') return message.delta > 0 ? 'Twist clockwise' : 'Twist counter-clockwise';
+    if (message.type === 'step') return ONE ? (message.direction > 0 ? 'Right' : 'Left') : (message.direction > 0 ? 'Swipe right' : 'Swipe left');
+    if (message.type === 'toggle') return 'Tap';
+    if (message.type === 'select') return 'Double-tap';
+    if (message.type === 'command') return 'Voice';
+    return message.type;
+  }
+
+  remote.onEvent((message) => {
+    if (message.type === 'adjust') dial = Math.max(0, Math.min(1, dial + message.delta));
+    const name = gestureName(message), json = JSON.stringify(message), now = Date.now(), top = logLines[0];
+    if (top && message.type === 'adjust' && top.json === json && now - top.at < 600) { top.count += 1; top.at = now; }   // one line per twist
+    else logLines.unshift({ time: new Date().toLocaleTimeString(), name, json, count: 1, at: now });
+    logLines.length = Math.min(logLines.length, 60);
+    $('log').textContent = logLines.map((l) => l.time + '  ' + l.name.padEnd(24) + l.json + (l.count > 1 ? '  x' + l.count : '')).join('\n');
+    $('gesture').textContent = name + (message.type === 'command' ? ': ' + message.text : '');
+    const tile = $('tile-' + message.type);
+    if (tile) { tile.classList.add('hit'); setTimeout(() => tile.classList.remove('hit'), 350); }
+  });
+  remote.onNote((text) => say(text));
+
+  function pill(element, text, kind) {
+    element.textContent = text;
+    element.className = 'pill' + (kind ? ' ' + kind : '');
+  }
+
+  function showRemote() {
+    const state = remote.getState(), cal = state.calibration;
+    $('needle').style.transform = 'rotate(' + ((dial - 0.5) * 270) + 'deg)';
+    $('level').textContent = dial.toFixed(2);
+
+    if (!state.connected) pill($('clutch'), 'Not connected');
+    else if (!cal) pill($('clutch'), 'Calibrate first', 'warn');
+    else if (state.clutch && !state.calm && !state.moving) pill($('clutch'), 'Hold still a moment' + (state.why ? ': ' + state.why : ''), 'warn');
+    else if (state.clutch) pill($('clutch'), 'Ready', 'good');
+    else pill($('clutch'), 'Arm not level: gestures paused');
+
+    // Wrist turn: a bar growing from the middle, 120 degrees to each side.
+    const roll = state.roll === null ? 0 : Math.max(-120, Math.min(120, state.roll));
+    $('rollBar').style.left = (roll >= 0 ? 50 : 50 + roll / 2.4) + '%';
+    $('rollBar').style.width = Math.abs(roll) / 2.4 + '%';
+    $('rollText').textContent = state.roll === null ? '--' : state.roll.toFixed(0) + (TURN ? ' deg this turn' : ' deg from rest')
+      + (TILT && state.limitLeft ? '  (a step at ' + Math.round(state.limitLeft) + ' left, ' + Math.round(state.limitRight) + ' right)' : '');
+    if (TILT) {                                      // the two lines a tip has to pass
+      const right = state.limitRight || remote.CONFIG.tiltOutDegrees, left = state.limitLeft || remote.CONFIG.tiltOutDegrees;
+      $('rollLeft').style.left = (50 - left / 2.4) + '%';          // the lines move with the arm and with where the wrist rests
+      $('rollRight').style.left = (50 + right / 2.4) + '%';
+      $('rollTrack').classList.toggle('hit', roll >= right || -roll >= left);
+    }
+
+    // Swipe strength against the wearer's threshold; the scale is twice the threshold.
+    swipePeak = Math.max(Math.abs(state.swipeRate), swipePeak * 0.93);
+    $('swipeBar').style.width = Math.min(100, swipePeak / (state.swipeMin * 2) * 100) + '%';
+    $('swipeMark').style.left = '50%';
+    $('swipeText').textContent = Math.round(swipePeak) + ' / ' + Math.round(state.swipeMin) + ' deg/s';
+
+    $('angle').textContent = state.angle === null ? '--' : state.angle.toFixed(0) + ' deg  (gestures within ' + remote.CONFIG.clutchDegrees + ')';
+    const direction = (v) => 'x ' + v[0].toFixed(2) + '  y ' + v[1].toFixed(2) + '  z ' + v[2].toFixed(2);
+    $('twistAxis').textContent = cal ? 'mostly ' + cal.twistAxis + '  (' + direction(cal.twistVec) + ')' : '--';
+    $('swipeAxis').textContent = cal && cal.swipeVec ? 'mostly ' + cal.swipeAxis + '  (' + direction(cal.swipeVec) + ')' : TILT ? 'not used' : '--';
+    const t = state.tapCheck;
+    $('tapCheck').textContent = (t.doubleTaps === 0 ? 'double-tap a few times to check' : t.withTapBefore + ' of ' + t.doubleTaps + ' double-taps')
+      + (state.tapDelay ? '  (tap waits ' + remote.CONFIG.tapDelayMs + ' ms)' : '  (tap fires at once)');
+    const m = state.movement;                        // how the last movement was judged
+    $('movement').textContent = m && m.winner === 'turn' ? m.result + '  (wrist ' + m.twist.toFixed(0) + ' deg, arm ' + m.swipe.toFixed(0) + ' deg)'
+      : m && m.winner === 'tilt' ? m.result + '  (' + m.twist.toFixed(0) + ' deg from the centre)' : m ? m.result + '  (swipe ' + m.swipe.toFixed(1) + ' deg, twist ' + m.twist.toFixed(1) + ' deg in the first '
+      + remote.CONFIG.classifyMs + ' ms: ' + (m.winner === 'none' ? 'no winner' : m.winner + ' won') + ')' : '--';
+    $('whyNot').textContent = state.missed ? 'Last movement not counted: ' + state.missed : '';
+
+    $('motionRate').textContent = state.motionRate + ' samples a second';
+
+    // Voice
+    const mic = state.mic, w = state.wake;
+    const micText = { off: 'Off', 'no-key': 'No key: voice is off', starting: 'Starting...', listening: 'Listening', muted: 'Muted', error: 'Stopped' }[mic.status];
+    if (w.held) pill($('micState'), 'Push to talk', 'blue');
+    else if (w.armed) pill($('micState'), 'Heard “Vexo”: go on', 'blue');
+    else pill($('micState'), micText, mic.status === 'listening' ? 'good' : mic.status === 'error' ? 'warn' : '');
+    $('mute').textContent = mic.muted ? 'Unmute' : 'Mute';
+    $('sending').textContent = mic.on ? "The band's microphone is being sent to Deepgram now. Press Mute to stop." : '';
+    const heard = $('heard');                         // what Deepgram hears, the command part in colour
+    if (w.armed || w.held) { heard.textContent = ''; const b = document.createElement('b'); b.textContent = w.pending || '...'; heard.append(b); }
+    else heard.textContent = state.heard ? '“' + state.heard + '”' : '';
+    // Loudness: the band reports dB below full scale; 60 (quiet) is an empty bar, 10 (loud) a full one.
+    $('loudBar').style.width = mic.loudness === null ? '0' : Math.max(0, Math.min(100, (60 - mic.loudness) * 2)) + '%';
+    $('loudText').textContent = mic.loudness === null ? '--' : mic.loudness + ' dB below full';
+    if (document.activeElement !== $('gain')) $('gain').value = mic.gainDb;
+
+    pill($('speechState'), state.speaking ? 'Speaking' : state.hasSpeechKey ? 'Key set for this tab' : 'No key: say is off', state.speaking ? 'blue' : state.hasSpeechKey ? 'good' : '');
+
+    // The hub's active device: on the page, because the band's light is blue while the microphone is on.
+    $('activeName').textContent = state.active ? state.active.device || 'Active device' : 'No active device';
+    $('swatch').style.background = state.active && state.active.color ? state.active.color : 'transparent';
+
+    if (latest) $('wizMotion').firstElementChild.style.width = Math.min(100, Math.hypot(latest.gx, latest.gy, latest.gz) / 4) + '%';
+  }
+
+  function frame() {
+    drawGraphs();
+    showRemote();
+    requestAnimationFrame(frame);
+  }
+  frame();
+
+  // ---- Moments from the module: the wake word, an error from the hub ----
+  remote.onSignal((kind) => {
+    if (kind === 'wake') beep(1320);
+    else if (kind === 'wake-timeout') beep(330);
+    else if (kind === 'error') {
+      beep(220);
+      const before = $('gesture').textContent;
+      $('gesture').textContent = 'Error from the hub';
+      document.body.classList.add('error');
+      setTimeout(() => {
+        document.body.classList.remove('error');
+        if ($('gesture').textContent === 'Error from the hub') $('gesture').textContent = before;
+      }, 1200);
+    }
+  });
+
+  // ---- Voice: the Deepgram key is typed here, kept in sessionStorage only, handed to the module ----
+  const KEY_NAME = 'vexo-deepgram-key';
+  remote.setDeepgramKey(sessionStorage.getItem(KEY_NAME) || '');
+  $('deepgramKey').onchange = () => {
+    const key = $('deepgramKey').value.trim();
+    $('deepgramKey').value = '';                     // out of the field at once
+    if (!key) return;
+    sessionStorage.setItem(KEY_NAME, key);
+    remote.setDeepgramKey(key);
+  };
+  $('forgetKey').onclick = () => { sessionStorage.removeItem(KEY_NAME); remote.setDeepgramKey(''); };
+  const ELEVEN_NAME = 'vexo-elevenlabs-key';          // the ElevenLabs key: handled the same way
+  remote.setElevenLabsKey(sessionStorage.getItem(ELEVEN_NAME) || '');
+  $('elevenKey').onchange = () => {
+    const key = $('elevenKey').value.trim();
+    $('elevenKey').value = '';
+    if (!key) return;
+    sessionStorage.setItem(ELEVEN_NAME, key);
+    remote.setElevenLabsKey(key);
+  };
+  $('forgetEleven').onclick = () => { sessionStorage.removeItem(ELEVEN_NAME); remote.setElevenLabsKey(''); };
+
+  // Test buttons: each sends one incoming message, as the hub would.
+  $('testActive').onclick = () => remote.handle({ type: 'active', device: $('testDevice').value, color: $('testColor').value });
+  $('testSay').onclick = () => remote.handle({ type: 'say', text: $('testText').value });
+  $('testError').onclick = () => remote.handle({ type: 'error' });
+
+  $('mute').onclick = () => remote.setMuted(!remote.getState().mic.muted);
+  $('gain').onchange = () => remote.setMicGain($('gain').value);
+
+  // Push to talk: hold the spacebar (not while typing in a field).
+  const typing = (e) => ['INPUT', 'TEXTAREA', 'BUTTON'].includes(e.target.tagName);
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || typing(e)) return;
+    e.preventDefault();                              // no page scroll
+    if (!e.repeat) remote.pushToTalk(true);
+  });
+  window.addEventListener('keyup', (e) => { if (e.code === 'Space') remote.pushToTalk(false); });
+  window.addEventListener('blur', () => remote.pushToTalk(false));
+
+  $('saveMotion').onclick = () => {
+    const file = new Blob([JSON.stringify({ calibration: remote.getState().calibration, samples: recent })], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(file);
+    link.download = 'band-motion-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  // ---- Fine tuning: sliders over the thresholds in CONFIG, kept in this browser ----
+  const TUNING = [                                   // `modes`: which gesture modes a slider matters in (none = all)
+    { key: 'turnOutDegrees', name: 'Turn outward: how far', unit: 'deg', min: 15, max: 120, step: 1, modes: ['turn'],
+      hint: 'Outward is the easy way: thumb away from your body, palm coming up. Left on the left arm, right on the right arm. Lower is easier; higher gives fewer accidental steps.' },
+    { key: 'turnInDegrees', name: 'Turn inward: how far', unit: 'deg', min: 15, max: 120, step: 1, modes: ['turn'],
+      hint: 'Inward is the harder way, so a little less is asked.' },
+    { key: 'turnMinDps', name: 'Turn: how quick', unit: 'deg/s', min: 80, max: 600, step: 10, modes: ['turn'],
+      hint: 'A turn must peak this fast to count; slower is free, for coming back. Lower if quick turns are missed; raise if coming back counts as a step.' },
+    { key: 'turnArmShare', name: 'Arm movement allowed', unit: 'x', min: 0.1, max: 1.5, step: 0.05, modes: ['turn'],
+      hint: 'How much the arm itself may turn, as a share of what the wrist turned. Lower removes more ghost steps while you move around; raise if real turns are refused as "the arm was moving".' },
+    { key: 'tiltOutDegrees', name: 'Tip outward: how far', unit: 'deg', min: 10, max: 70, step: 1, modes: ['tilt'],
+      hint: 'Outward is the easy way: thumb away from your body, palm coming up. Left on the left arm, right on the right arm.' },
+    { key: 'tiltInDegrees', name: 'Tip inward: how far', unit: 'deg', min: 8, max: 70, step: 1, modes: ['tilt'],
+      hint: 'Inward is the harder way, so less is asked. Lower it until both ways feel alike.' },
+    { key: 'tiltRangeShare', name: 'Ease off near the end', unit: 'of the room left', min: 0, max: 0.9, step: 0.05, modes: ['tilt'],
+      hint: 'Off at 0. Above 0, a wrist resting already turned one way is asked for at most this share of the room it has left that way. Only fits if you calibrated thumb up.' },
+    { key: 'tiltArmDps', name: 'Arm movement that cancels', unit: 'deg/s', min: 30, max: 200, step: 5, modes: ['tilt'],
+      hint: 'The arm itself turning faster than this forgets the centre until it is still again. Lower removes more ghost steps while you move around; raise it if "Hold still a moment: arm turning" shows during a tip.' },
+    { key: 'tiltArmLeak', name: 'Wrist turn allowed to spill', unit: 'x', min: 0, max: 1, step: 0.05, modes: ['tilt'],
+      hint: 'No wrist turns about one line only: this share of its own turning speed is allowed on the other directions. Raise it if fast tips are refused.' },
+    { key: 'tiltArmDegrees', name: 'Raise or lower that cancels', unit: 'deg', min: 5, max: 45, step: 1, modes: ['tilt'],
+      hint: 'The forearm raised or lowered this far also forgets the centre.' },
+    { key: 'tiltReturnDegrees', name: 'Tip: back to centre', unit: 'deg', min: 3, max: 30, step: 1, modes: ['tilt'],
+      hint: 'How close to the centre the wrist must come back before the next step. Raise it if a second tip is not picked up.' },
+    { key: 'tiltHoldMs', name: 'Tip: stay past the line', unit: 'ms', min: 0, max: 400, step: 10, modes: ['tilt'],
+      hint: 'How long it must stay past the line. Higher ignores shakes; lower answers faster.' },
+    { key: 'tiltRecentreMs', name: 'Tip: new centre after', unit: 'ms', min: 500, max: 5000, step: 100, modes: ['tilt'],
+      hint: 'A wrist that rests this long somewhere new makes that the centre. Raise it if steps go missing after a pause.' },
+    { key: 'moveStartDps', name: 'Movement start', unit: 'deg/s', min: 15, max: 150, step: 5, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'How fast the forearm must turn before anything is looked at. Higher ignores more small movement.' },
+    { key: 'settleMs', name: 'Still before a gesture', unit: 'ms', min: 0, max: 600, step: 10, modes: ['tilt', 'leftRight', 'twistAndSwipe'],
+      hint: 'A gesture only starts from an arm held still this long. Higher removes more ghost gestures.' },
+    { key: 'settleDps', name: 'What counts as still', unit: 'deg/s', min: 20, max: 150, step: 5, modes: ['tilt', 'leftRight', 'twistAndSwipe'],
+      hint: 'The band turning slower than this, in any direction. Raise it if "Hold still a moment" shows while your arm is steady.' },
+    { key: 'returnMs', name: 'Coming back is free for', unit: 'ms', min: 0, max: 2500, step: 50, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'Moving back the other way this soon after a counted one is not a new gesture. Higher removes ghost steps in the opposite direction.' },
+    { key: 'dominanceRatio', name: 'Twist or swipe', unit: 'x', min: 1, max: 3, step: 0.1, modes: ['twistAndSwipe'],
+      hint: 'How much more one must be than the other. Higher drops more mixed movements; lower guesses more often.' },
+    { key: 'twistStartDegrees', name: 'Wrist turn: how far', unit: 'deg', min: 5, max: 60, step: 1, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'How far the wrist must turn to count. Higher needs a more deliberate turn.' },
+    { key: 'twistStepDegrees', name: 'Twist: step', unit: 'deg', min: 5, max: 40, step: 1, modes: ['twistAndSwipe'],
+      hint: 'Degrees per adjust after that. Lower changes the dial faster.' },
+    { key: 'swipeMinDps', name: 'Swipe: strength', unit: 'deg/s', min: 80, max: 600, step: 10, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'How fast a sweep must peak. Once moved, this value is used as it is, not the one from your calibration.' },
+    { key: 'swipeMinDegrees', name: 'Swipe: smallest sweep', unit: 'deg', min: 0, max: 45, step: 1, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'How far the forearm must travel. Higher rejects bumps and jolts, which are fast but go nowhere.' },
+    { key: 'swipeMaxMs', name: 'Swipe: longest', unit: 'ms', min: 150, max: 800, step: 10, modes: ['leftRight', 'twistAndSwipe'],
+      hint: 'A sweep that lasts longer is not a swipe.' },
+    { key: 'clutchDegrees', name: 'Arm level within', unit: 'deg', min: 20, max: 90, step: 5,
+      hint: 'How far from level the forearm may be. Lower means gestures only count in a stricter pose.' },
+    { key: 'cooldownMs', name: 'Pause after a gesture', unit: 'ms', min: 0, max: 1500, step: 50,
+      hint: 'Quiet time after each gesture. Higher stops one movement counting twice.' },
+  ].filter((t) => !t.modes || t.modes.includes(MODE));
+  const TUNING_KEY = 'vexo-band-tuning';
+  const DEFAULTS = { ...remote.CONFIG };             // as written in gestures.js, before any slider
+  let tuned = {};                                    // only the values that differ from the defaults
+  try { tuned = JSON.parse(localStorage.getItem(TUNING_KEY)) || {}; } catch { /* no storage: sliders still work, for this visit */ }
+  delete tuned.tiltRightDegrees; delete tuned.tiltLeftDegrees;      // replaced by outward and inward
+
+  function applyTuning() {
+    for (const t of TUNING) {
+      const value = Number.isFinite(tuned[t.key]) ? Math.max(t.min, Math.min(t.max, tuned[t.key])) : DEFAULTS[t.key];
+      if (value === DEFAULTS[t.key]) delete tuned[t.key]; else tuned[t.key] = value;
+      remote.CONFIG[t.key] = value;
+      const slider = $('tune-' + t.key), shown = $('tuneValue-' + t.key);
+      slider.value = value;
+      shown.textContent = value + ' ' + t.unit;
+      shown.className = t.key in tuned ? 'changed' : '';
+      shown.title = 'default ' + DEFAULTS[t.key] + ' ' + t.unit;
+    }
+    remote.CONFIG.swipeFromCalibration = !Number.isFinite(tuned.swipeMinDps);
+    const count = Object.keys(tuned).length;
+    $('tuneCount').textContent = count ? '(' + count + ' changed)' : '';
+    try { localStorage.setItem(TUNING_KEY, JSON.stringify(tuned)); } catch { /* not kept: fine */ }
+  }
+
+  $('tuneRows').replaceChildren(...TUNING.flatMap((t) => {
+    const label = document.createElement('label'), slider = document.createElement('input');
+    const shown = document.createElement('output'), hint = document.createElement('small');
+    label.textContent = t.name;
+    label.htmlFor = slider.id = 'tune-' + t.key;
+    slider.type = 'range';
+    slider.min = t.min; slider.max = t.max; slider.step = t.step;
+    slider.oninput = () => { tuned[t.key] = Number(slider.value); applyTuning(); };
+    shown.id = 'tuneValue-' + t.key;
+    hint.textContent = t.hint;
+    return [label, slider, shown, hint];
+  }));
+  applyTuning();
+  $('tuneReset').onclick = () => { tuned = {}; applyTuning(); $('tuneText').style.display = 'none'; };
+  $('tuneCopy').onclick = async () => {
+    const keys = Object.keys(tuned);
+    const lines = keys.map((k) => '  ' + k + ': ' + tuned[k] + ',');
+    if (!remote.CONFIG.swipeFromCalibration) lines.push('  swipeFromCalibration: false,');
+    const text = keys.length ? lines.join('\n') : 'Nothing changed: every slider is at its default.';
+    $('tuneText').textContent = text;
+    $('tuneText').style.display = 'block';
+    if (keys.length) { try { await navigator.clipboard.writeText(text); say('Tuning copied.'); } catch { /* shown on the page instead */ } }
+  };
+
+  // ---- Device API: every outgoing message is posted to the team's API, through serve.py's /hub ----
+  const hub = createHubLink({ post: hubPost(), deviceId: bandDeviceId(BAND), onChange: showHub });
+  function showHub(state) {
+    const kind = { ready: 'good', unreachable: 'warn', refused: 'warn' }[state.status] || '';
+    const text = { idle: 'not tried yet', ready: 'connected', unreachable: 'not reachable', refused: 'refused' }[state.status];
+    pill($('hub'), 'Device API: ' + text, kind);
+    $('hubText').textContent = 'As ' + state.deviceId + ': ' + state.accepted + ' accepted, ' + state.dropped + ' not delivered.'
+      + (state.problem ? '  ' + state.problem : '');
+  }
+  showHub(hub.state);
+  remote.onEvent((message) => hub.send(message));
+  setInterval(() => {                                // the API was not there: look again while the band is on
+    if (bandOn && hub.state.status !== 'ready') hub.register('connected');
+  }, 5000);
+
+  // ---- Trace: what the band did and what the detector made of it, kept by serve.py for looking at afterwards ----
+  const trace = [];                                  // motion since the last post: [t, ax, ay, az, gx, gy, gz]
+  const traceEvents = [];                            // messages and taps since the last post
+  let traceOff = false;                              // the server is not serve.py: stop trying
+  remote.onEvent((message) => traceEvents.push({ at: Date.now(), message }));
+  setInterval(async () => {
+    if (traceOff || trace.length === 0) return;
+    const state = remote.getState();
+    const config = {};
+    for (const [key, value] of Object.entries(remote.CONFIG)) if (typeof value !== 'object') config[key] = value;
+    const body = JSON.stringify({
+      at: Date.now(), samples: trace.splice(0), events: traceEvents.splice(0), config,
+      calibration: state.calibration,
+      state: { clutch: state.clutch, calm: state.calm, why: state.why, angle: state.angle, roll: state.roll, centre: state.centre,
+        armRate: state.armRate, limitRight: state.limitRight, limitLeft: state.limitLeft, movement: state.movement, missed: state.missed },
+    });
+    try {
+      const reply = await fetch('/trace', { method: 'POST', body });
+      if (!reply.ok) traceOff = true;
+    } catch { traceOff = true; }
+  }, 2000);
+
+  // ---- Which arm: a forearm turns outward more easily than inward, and outward is left on the left arm ----
+  const ARM_KEY = 'vexo-band-arm';
+  function setArm(arm, keep) {
+    remote.CONFIG.wearingArm = arm === 'right' ? 'right' : 'left';
+    for (const side of ['left', 'right']) $('arm-' + side).classList.toggle('primary', side === remote.CONFIG.wearingArm);
+    if (keep) { try { localStorage.setItem(ARM_KEY, remote.CONFIG.wearingArm); } catch { /* not kept: fine */ } }
+  }
+  let savedArm = null;
+  try { savedArm = localStorage.getItem(ARM_KEY); } catch { /* no storage */ }
+  setArm(savedArm || remote.CONFIG.wearingArm, false);
+  $('arm-left').onclick = () => setArm('left', true);
+  $('arm-right').onclick = () => setArm('right', true);
+  $('armRow').style.display = TILT ? '' : 'none';
+
+  // ---- Calibration: three poses, one at a time, each checked before the next ----
+  const POSES = [
+    { kind: 'level', short: 'Level', icon: '☕', title: 'Hold your arm level, thumb up', text: 'Like holding a mug, so your wrist can turn both ways from here. Keep it still.', doing: 'Hold still' },
+    { kind: 'twist', short: 'Twist', icon: '🔄', title: 'Twist like a doorknob', text: 'Start by turning clockwise, then keep turning back and forth.', doing: 'Keep twisting' },
+    { kind: 'swipe', short: 'Swipe', icon: '👋', title: 'Swipe your forearm side to side', text: 'Pivot at the elbow and keep your wrist from turning. Left and right, level with the floor. Start to the right, then keep going.', doing: 'Keep swiping' },
+  ].filter((p) => !(TILT && p.kind === 'swipe'));    // the tilt needs the level pose and the twist only
+  let wizardRun = 0;                                 // changes when the wizard is cancelled or restarted
+
+  function beep(pitch) {                             // so you can watch your arm, not the screen
+    try {
+      sound = sound || new AudioContext();
+      const tone = sound.createOscillator(), volume = sound.createGain();
+      tone.frequency.value = pitch;
+      volume.gain.setValueAtTime(0.15, sound.currentTime);
+      volume.gain.exponentialRampToValueAtTime(0.001, sound.currentTime + 0.18);
+      tone.connect(volume).connect(sound.destination);
+      tone.start();
+      tone.stop(sound.currentTime + 0.2);
+    } catch { /* no sound: the screen still shows it */ }
+  }
+
+  function showStep(index, done) {
+    $('wizSteps').replaceChildren(...POSES.map((p, i) => {
+      const step = document.createElement('div');
+      step.textContent = (i < index || done ? '✓ ' : (i + 1) + '. ') + p.short;
+      step.className = i < index || done ? 'done' : i === index ? 'now' : '';
+      return step;
+    }));
+  }
+
+  function showPhase(count, label, kind) {
+    $('wizCount').textContent = count;
+    $('wizCount').className = kind === 'ok' ? 'ok' : '';
+    $('wizLabel').textContent = label;
+    $('wizLabel').className = kind === 'rec' ? 'rec' : '';
+  }
+
+  function recordingBar(on) {
+    const bar = $('wizBar').firstElementChild;
+    $('wizBar').style.visibility = on ? 'visible' : 'hidden';
+    bar.style.transition = 'none';
+    bar.style.width = '0';
+    if (on) requestAnimationFrame(() => requestAnimationFrame(() => {
+      bar.style.transition = 'width ' + remote.CONFIG.poseMs + 'ms linear';
+      bar.style.width = '100%';
+    }));
+  }
+
+  /** Wait for a click on Try again. Resolves false if the wizard was cancelled meanwhile. */
+  function tryAgain(run) {
+    $('wizRetry').style.display = '';
+    return new Promise((resolve) => {
+      const check = setInterval(() => { if (run !== wizardRun) { clearInterval(check); resolve(false); } }, 200);
+      $('wizRetry').onclick = () => { clearInterval(check); $('wizRetry').style.display = 'none'; resolve(true); };
+    });
+  }
+
+  function closeWizard() {
+    remote.setCalibrating(false);
+    wizardRun += 1;
+    $('wizard').classList.remove('open');
+  }
+  $('wizCancel').onclick = closeWizard;
+
+  async function calibrate() {
+    const run = ++wizardRun;
+    const poses = {};
+    remote.setCalibrating(true);                     // moving into the poses must not fire gestures
+    $('wizard').classList.add('open');
+    $('wizSummary').style.display = 'none';
+    $('wizRetry').style.display = 'none';
+    $('wizCancel').textContent = 'Cancel';
+    $('wizMotion').style.display = '';
+
+    for (let i = 0; i < POSES.length; i++) {
+      const p = POSES[i];
+      for (;;) {
+        showStep(i, false);
+        $('wizIcon').textContent = p.icon;
+        $('wizTitle').textContent = p.title;
+        $('wizText').textContent = p.text;
+        $('wizProblem').textContent = '';
+        recordingBar(false);
+        for (let n = 3; n > 0; n--) {                // time to get into the pose
+          showPhase(n, 'Get ready');
+          await pause(1000);
+          if (run !== wizardRun) return;
+        }
+        beep(880);
+        showPhase('●', p.doing + ': recording', 'rec');
+        recordingBar(true);
+        const samples = await remote.recordPose();
+        if (run !== wizardRun) return;
+        beep(440);
+        recordingBar(false);
+        const problem = remote.checkPose(p.kind, samples, poses);
+        if (!problem) {
+          poses[p.kind] = samples;
+          showPhase('✓', 'Got it', 'ok');
+          await pause(800);
+          if (run !== wizardRun) return;
+          break;
+        }
+        showPhase('', '');
+        $('wizProblem').textContent = problem;
+        if (!await tryAgain(run)) return;
+      }
+    }
+
+    try {
+      const cal = remote.finishCalibration(poses.level, poses.twist, poses.swipe);
+      const rows = cal.swipeVec ? [
+        ['Twist axis', cal.twistAxis], ['Swipe axis', cal.swipeAxis],
+        ['Your swipe', Math.round(cal.swipePeak) + ' deg/s (a swipe must reach ' + Math.round(remote.getState().swipeMin) + ')'],
+      ] : TURN ? [['Wrist axis', cal.twistAxis], ['A step is', 'a quick turn of ' + remote.CONFIG.turnOutDegrees + ' degrees outward or ' + remote.CONFIG.turnInDegrees + ' inward']]
+        : [['Wrist axis', cal.twistAxis], ['A step at', remote.CONFIG.tiltOutDegrees + ' degrees outward, ' + remote.CONFIG.tiltInDegrees + ' inward of where your wrist rests']];
+      $('wizSummary').replaceChildren(...rows.map(([name, value]) => {
+        const row = document.createElement('tr');
+        row.innerHTML = '<td class="muted"></td><td></td>';
+        row.cells[0].textContent = name;
+        row.cells[1].textContent = value;
+        return row;
+      }));
+      showStep(POSES.length, true);
+      $('wizIcon').textContent = '✅';
+      $('wizTitle').textContent = 'Calibrated';
+      $('wizText').textContent = TURN ? 'Saved in this browser. Hold your arm level, then turn your wrist quickly right, quickly left, and tap.' : TILT ? 'Saved in this browser. Hold your arm level and still, then tip your wrist right and come back, left and come back, and tap.' : ONE ? 'Saved in this browser. Hold your arm level and still, then move it right, left, and tap.' : 'Saved in this browser. Hold your arm level and try a twist, a swipe and a tap.';
+      $('wizSummary').style.display = 'table';
+      say('Calibrated.');
+    } catch (e) {
+      $('wizIcon').textContent = '⚠️';
+      $('wizTitle').textContent = 'That did not work';
+      $('wizText').textContent = e.message;
+    }
+    showPhase('', '');
+    remote.setCalibrating(false);
+    $('wizMotion').style.display = 'none';
+    $('wizCancel').textContent = 'Done';
+  }
+  $('calibrate').onclick = calibrate;
+
+  // ---- Connecting ----
+  function setConnected(on) {
+    bandOn = on;
+    $('calibrate').disabled = !on;
+    $('connect').disabled = on;
+    $('disconnect').disabled = !on;
+    pill($('link'), on ? 'Connected' : 'Not connected', on ? 'good' : '');
+    if (!on) closeWizard();
+  }
+
+  function addTap(kind) {
+    $('taps').textContent = new Date().toLocaleTimeString() + '  ' + kind + '\n' + $('taps').textContent.slice(0, 2000);
+  }
+
+  $('connect').onclick = async () => {
+    try {
+      say('Connecting... pick ' + NAME + ' in the list. If it is missing: double-tap the band, and close any other tab that uses it.');
+      const sim = SIM ? new SimTransport(BAND) : null;
+      if (sim) window.sim = sim;                     // pretend band: direct it from the console
+      band = await Band.connect(BAND, sim ? { transport: sim } : {});
+      setConnected(true);
+      say('Connected to ' + band.name + '.');
+      hub.register('connected');                     // tell the device API the band is here
+
+      band.on('motion', (m) => {
+        latest = m;
+        recent.push({ t: m.t, ax: m.ax, ay: m.ay, az: m.az, gx: m.gx, gy: m.gy, gz: m.gz });
+        trace.push([m.t, m.ax, m.ay, m.az, m.gx, m.gy, m.gz]);
+        if (recent.length > POINTS) recent.shift();
+        for (const g of graphs) {
+          g.values.push(m[g.name]);
+          if (g.values.length > POINTS) g.values.shift();
+        }
+      });
+      band.on('tap', () => addTap('tap'));
+      band.on('double-tap', () => addTap('double-tap'));
+      band.on('battery', (b) => {
+        $('battery').textContent = b.percent + '%' + (b.charging ? ' (charging)' : '');
+      });
+      band.on('disconnect', (e) => {
+        setConnected(false);
+        hub.register('disconnected');
+        say('Disconnected (' + e.reason + '). Double-tap the band before connecting again.');
+      });
+
+      await remote.attach(band);                     // motion at 100 a second, both sensors, events, microphone
+      await band.configure({ battery: true });
+      if (!remote.getState().calibration) {          // first time in this browser: start the steps
+        say('Connected to ' + band.name + '. Calibrate once before using gestures.');
+        calibrate();
+      }
+    } catch (e) {
+      setConnected(false);
+      say(e.message);                                // the library's messages say what to do next
+    }
+  };
+
+  $('disconnect').onclick = async () => {
+    try { await band.disconnect(); } catch (e) { say(e.message); }
+  };
+</script>
