@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "vexo-open-kit" / "python"))   # the library: a folder in the kit
 from vexo_open.sync import Band
 
-BAND = 28                                 # our team's band number: Vexo-HACK-28
+BAND = 76                                 # our team's band number: Vexo-HACK-76
 SECONDS = 30
 
 latest = None                             # the newest motion reading

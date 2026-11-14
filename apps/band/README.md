@@ -1,6 +1,6 @@
-# Vexo band 28: motion check and simple dashboard
+# Vexo band 76: motion check and simple dashboard
 
-Two small things that talk to our Vexo band (`Vexo-HACK-28`) over Bluetooth:
+Two small things that talk to our Vexo band (`Vexo-HACK-76`) over Bluetooth:
 
 - `band_check.py` prints one motion reading a second for 30 seconds, plus taps.
 - `index.html` is a dashboard page: connect, battery, six live motion graphs, tap log.
@@ -34,7 +34,7 @@ The page cannot be opened by double-click: it has to be served.
     make band
 
 Then open <http://localhost:8001/index.html> in Chrome or Edge, press **Connect** and pick
-`Vexo-HACK-28` in the list. To try it without the band, open
+`Vexo-HACK-76` in the list. To try it without the band, open
 <http://localhost:8001/index.html?sim> instead.
 
 When the Mac runtime is running, the dashboard also connects to
@@ -190,5 +190,5 @@ Tests (Node 18 or newer, no band needed):
 
 ## Using a different band
 
-Change `BAND = 28` near the top of both `band_check.py` and `index.html`. The band module
+Change `BAND = 76` near the top of both `band_check.py` and `index.html`. The band module
 takes the connected band from the page and has no number of its own.

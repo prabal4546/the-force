@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vexo Mac Remote</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b1020; color: #f8fafc; }
+  main { width: min(680px, calc(100% - 40px)); padding: 42px; border: 1px solid #334155; border-radius: 24px; background: #111827; box-shadow: 0 24px 80px #0008; }
+  h1 { margin: 0 0 12px; font-size: 42px; }
+  p { color: #cbd5e1; font-size: 18px; line-height: 1.5; }
+  button { border: 0; border-radius: 14px; padding: 14px 24px; font: 700 18px system-ui; cursor: pointer; background: #3b82f6; color: white; }
+  button:disabled { opacity: .45; cursor: default; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .pill { display: inline-block; border-radius: 999px; padding: 7px 12px; background: #1e293b; color: #cbd5e1; font-weight: 700; }
+  .good { background: #123b2a; color: #86efac; }
+  .bad { background: #451a1a; color: #fca5a5; }
+  #action { min-height: 78px; margin-top: 28px; padding: 22px; border-radius: 18px; background: #0f172a; font-size: 30px; font-weight: 800; text-align: center; }
+</style>
+<main>
+  <h1>Vexo → Mac</h1>
+  <p>Band 76 presentation remote. Single-tap sends <b>Next</b>; double-tap sends <b>Previous</b>.</p>
+  <div class="row">
+    <button id="connect">Connect Vexo-HACK-76</button>
+    <button id="disconnect" disabled>Disconnect</button>
+    <span id="bandState" class="pill">Band disconnected</span>
+    <span id="macState" class="pill">Mac connecting</span>
+  </div>
+  <div id="action">Double-tap the band, then press Connect</div>
+</main>
+<script type="module">
+  import { Band } from './vexo-open-kit/js/src/index.js';
+
+  const $ = (id) => document.getElementById(id);
+  let band = null;
+  let socket = null;
+  let tapTimer = null;
+
+  function pill(id, text, kind = '') {
+    $(id).textContent = text;
+    $(id).className = 'pill ' + kind;
+  }
+
+  function connectMac() {
+    socket = new WebSocket('ws://127.0.0.1:8765');
+    socket.onopen = () => pill('macState', 'Mac ready', 'good');
+    socket.onerror = () => pill('macState', 'Mac unavailable', 'bad');
+    socket.onclose = () => { pill('macState', 'Mac reconnecting', 'bad'); setTimeout(connectMac, 1000); };
+  }
+
+  function sendKey(key, label) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      $('action').textContent = 'Mac runtime is not connected';
+      return;
+    }
+    socket.send(JSON.stringify({ version: 1, id: crypto.randomUUID(), type: 'mac.key', key }));
+    $('action').textContent = label + '  ' + (key === 'right' ? '→' : '←');
+  }
+
+  $('connect').onclick = async () => {
+    try {
+      $('action').textContent = 'Choose Vexo-HACK-76 in the Bluetooth picker';
+      band = await Band.connect(76);
+      band.on('tap', () => {
+        clearTimeout(tapTimer);
+        tapTimer = setTimeout(() => sendKey('right', 'NEXT'), 350);
+      });
+      band.on('double-tap', () => {
+        clearTimeout(tapTimer);
+        sendKey('left', 'PREVIOUS');
+      });
+      band.on('disconnect', () => {
+        pill('bandState', 'Band disconnected', 'bad');
+        $('connect').disabled = false;
+        $('disconnect').disabled = true;
+      });
+      await band.configure({ events: true, battery: true });
+      pill('bandState', band.name + ' connected', 'good');
+      $('connect').disabled = true;
+      $('disconnect').disabled = false;
+      $('action').textContent = 'Band ready — tap for Next';
+    } catch (error) {
+      pill('bandState', 'Connection failed', 'bad');
+      $('action').textContent = error.message;
+    }
+  };
+
+  $('disconnect').onclick = async () => {
+    if (band) await band.disconnect();
+  };
+
+  connectMac();
+</script>
