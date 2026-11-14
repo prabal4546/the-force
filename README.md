@@ -116,6 +116,10 @@ the phone and single-tap Vexo to GRAB. Select **External Display** on the phone
 and double-tap Vexo to THROW. The dashboard still records the original band
 events in the HTTP API when that API is running.
 
+If the selected app exposes a non-movable window, use the presentation fallback:
+focus Keynote, PowerPoint, or Google Slides and use left/right Vexo wrist steps
+to send real macOS arrow keys through the same coordinator.
+
 The iOS shell contains manual target and gesture controls. Keep these controls
 working even after real hardware is connected; they are the integration and
 demo fallback.

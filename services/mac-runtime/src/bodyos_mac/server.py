@@ -5,6 +5,7 @@ from typing import Optional, Union
 
 from websockets.asyncio.server import ServerConnection, serve
 
+from .keyboard_controller import KeyboardControlError, KeyboardControlling
 from .protocol import ProtocolError, WireMessage, reply
 from .vexo_adapter import VexoInput
 from .window_controller import WindowControlError, WindowControlling
@@ -18,11 +19,13 @@ class BodyOSServer:
         *,
         host: str,
         port: int,
+        keyboard: Optional[KeyboardControlling] = None,
     ) -> None:
         self.window_controller = window_controller
         self.vexo = vexo
         self.host = host
         self.port = port
+        self.keyboard = keyboard
         self.clients: set[ServerConnection] = set()
 
     async def run(self) -> None:
@@ -85,6 +88,15 @@ class BodyOSServer:
                 await self.vexo.set_led(color)
                 return None
 
+            if request.type == "mac.key":
+                key = payload.get("key")
+                if key not in ("left", "right"):
+                    raise ProtocolError("mac.key requires left or right")
+                if self.keyboard is None:
+                    raise KeyboardControlError("Mac keyboard control is not enabled")
+                self.keyboard.press_key(key)
+                return reply(request, "mac.key.pressed", key=key, success=True)
+
             if request.type == "gesture.detected":
                 gesture = payload.get("gesture")
                 confidence = payload.get("confidence")
@@ -96,7 +108,7 @@ class BodyOSServer:
                 return None
 
             raise ProtocolError(f"Unsupported message type: {request.type}")
-        except (ProtocolError, WindowControlError) as exc:
+        except (KeyboardControlError, ProtocolError, WindowControlError) as exc:
             if request is not None:
                 return reply(
                     request,

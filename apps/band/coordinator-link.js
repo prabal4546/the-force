@@ -1,10 +1,20 @@
 // Direct, low-latency demo link from the band dashboard to the Mac WebSocket
 // runtime. The HTTP device API still records every original band event; this
-// link only maps the two explicit action gestures into the coordinator grammar.
+// link maps taps into the coordinator grammar and wrist steps into presentation
+// arrow keys for a reliable Mac fallback demo.
 
 export function coordinatorGesture(message) {
   if (message && message.type === 'toggle') return 'grab';
   if (message && message.type === 'select') return 'throw';
+  return null;
+}
+
+export function coordinatorAction(message) {
+  const gesture = coordinatorGesture(message);
+  if (gesture) return { type: 'gesture.detected', gesture, confidence: 1 };
+  if (message && message.type === 'step' && (message.direction === -1 || message.direction === 1)) {
+    return { type: 'mac.key', key: message.direction === 1 ? 'right' : 'left' };
+  }
   return null;
 }
 
@@ -47,8 +57,8 @@ export function createCoordinatorLink({
   }
 
   function send(message) {
-    const gesture = coordinatorGesture(message);
-    if (!gesture) return false;
+    const action = coordinatorAction(message);
+    if (!action) return false;
     if (!socket || socket.readyState !== 1) {
       set({ dropped: state.dropped + 1, problem: 'Gesture not sent: Mac runtime is disconnected.' });
       return false;
@@ -56,9 +66,7 @@ export function createCoordinatorLink({
     socket.send(JSON.stringify({
       version: 1,
       id: makeId(),
-      type: 'gesture.detected',
-      gesture,
-      confidence: 1,
+      ...action,
     }));
     set({ sent: state.sent + 1, problem: null });
     return true;

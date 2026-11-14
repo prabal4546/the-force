@@ -19,6 +19,8 @@
         "window.captured",
         "window.move",
         "window.moved",
+        "mac.key",
+        "mac.key.pressed",
         "vexo.led",
         "tracking.state",
         "error"
@@ -32,6 +34,7 @@
     "token": { "type": "string" },
     "title": { "type": "string" },
     "destination": { "enum": ["externalDisplay"] },
+    "key": { "enum": ["left", "right"] },
     "success": { "type": "boolean" },
     "state": { "enum": ["idle", "searching", "tracking", "lost", "failure"] },
     "color": { "enum": ["off", "yellow", "green", "red", "blue", "white"] },

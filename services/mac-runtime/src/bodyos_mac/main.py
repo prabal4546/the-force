@@ -4,6 +4,7 @@ import argparse
 import asyncio
 
 from .config import RuntimeConfig
+from .keyboard_controller import MacOSKeyboardController, SimulatedKeyboardController
 from .server import BodyOSServer
 from .vexo_adapter import RealVexoInput, SimulatedVexoInput
 from .window_controller import MacOSWindowController, SimulatedWindowController
@@ -29,16 +30,19 @@ async def run(*, simulate: bool, real_windows: bool = False) -> None:
     if simulate:
         vexo = SimulatedVexoInput()
         windows = MacOSWindowController() if real_windows else SimulatedWindowController()
+        keyboard = MacOSKeyboardController() if real_windows else SimulatedKeyboardController()
     else:
         assert config.vexo_band_number is not None
         vexo = RealVexoInput(config.vexo_band_number)
         windows = MacOSWindowController()
+        keyboard = MacOSKeyboardController()
 
     server = BodyOSServer(
         windows,
         vexo,
         host=config.host,
         port=config.port,
+        keyboard=keyboard,
     )
     await server.run()
 

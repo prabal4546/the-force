@@ -20,7 +20,7 @@ GRAB and double-tap to THROW over the existing WebSocket coordinator path.
 `shared/protocol/events.schema.json` describes a different WebSocket envelope.
 Do not send the HTTP band-event body directly to it. The explicit demo mapping
 is implemented in `apps/band/coordinator-link.js`: `toggle` becomes GRAB and
-`select` becomes THROW; `step` remains unmapped.
+`select` becomes THROW; `step` becomes a left/right macOS presentation key.
 
 ## Start and verify
 

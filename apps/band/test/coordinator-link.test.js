@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { coordinatorGesture, createCoordinatorLink } from '../coordinator-link.js';
+import { coordinatorAction, coordinatorGesture, createCoordinatorLink } from '../coordinator-link.js';
 
 class FakeSocket {
   static instances = [];
@@ -33,6 +33,12 @@ test('single tap maps to grab and double-tap maps to throw', () => {
   assert.equal(coordinatorGesture({ type: 'command', text: 'grab' }), null);
 });
 
+test('wrist steps map to Mac presentation arrows', () => {
+  assert.deepEqual(coordinatorAction({ type: 'step', direction: -1 }), { type: 'mac.key', key: 'left' });
+  assert.deepEqual(coordinatorAction({ type: 'step', direction: 1 }), { type: 'mac.key', key: 'right' });
+  assert.equal(coordinatorAction({ type: 'step', direction: 0 }), null);
+});
+
 test('the coordinator link sends versioned wire messages only while connected', () => {
   FakeSocket.instances = [];
   const link = createCoordinatorLink({
@@ -48,10 +54,11 @@ test('the coordinator link sends versioned wire messages only while connected', 
   socket.open();
   assert.equal(link.send({ type: 'toggle' }), true);
   assert.equal(link.send({ type: 'select' }), true);
-  assert.equal(link.send({ type: 'step', direction: 1 }), false);
+  assert.equal(link.send({ type: 'step', direction: 1 }), true);
   assert.deepEqual(socket.sent, [
     { version: 1, id: 'event-1', type: 'gesture.detected', gesture: 'grab', confidence: 1 },
     { version: 1, id: 'event-1', type: 'gesture.detected', gesture: 'throw', confidence: 1 },
+    { version: 1, id: 'event-1', type: 'mac.key', key: 'right' },
   ]);
-  assert.equal(link.state.sent, 2);
+  assert.equal(link.state.sent, 3);
 });

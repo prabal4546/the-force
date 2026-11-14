@@ -38,9 +38,10 @@ Then open <http://localhost:8001/index.html> in Chrome or Edge, press **Connect*
 <http://localhost:8001/index.html?sim> instead.
 
 When the Mac runtime is running, the dashboard also connects to
-`ws://127.0.0.1:8765`: a single tap sends **GRAB** and a double-tap sends **THROW**
-to the iPhone coordinator. Left/right wrist turns remain `step` events for target
-navigation and are recorded by the HTTP API, but are not mapped to product actions yet.
+`ws://127.0.0.1:8765`: a single tap sends **GRAB**, a double-tap sends **THROW**,
+and a left/right wrist step sends the matching macOS presentation arrow. This
+lets the band drive Keynote, PowerPoint, or Google Slides even when a particular
+window cannot be moved. The original events are still recorded by the HTTP API.
 
 `serve.py` is a plain file server that also keeps the band's motion, and what the gesture
 detector made of it, in `traces/trace.jsonl` (motion only, on this computer, not in git), so a

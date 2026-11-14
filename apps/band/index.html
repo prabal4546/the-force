@@ -655,14 +655,14 @@
     if (bandOn && hub.state.status !== 'ready') hub.register('connected');
   }, 5000);
 
-  // ---- Product coordinator: tap = GRAB, double-tap = THROW ----
+  // ---- Product coordinator: taps act on targets; wrist steps control slides ----
   const coordinator = createCoordinatorLink({ onChange: showCoordinator });
   function showCoordinator(state) {
     const kind = state.status === 'ready' ? 'good' : state.status === 'unreachable' ? 'warn' : '';
     const text = { idle: 'idle', connecting: 'connecting', ready: 'connected', unreachable: 'not reachable' }[state.status];
     pill($('coordinator'), 'Coordinator: ' + text, kind);
     $('coordinatorText').textContent = state.sent + ' actions sent, ' + state.dropped + ' not delivered.'
-      + (state.problem ? '  ' + state.problem : '  Tap = GRAB, double-tap = THROW.');
+      + (state.problem ? '  ' + state.problem : '  Tap = GRAB, double-tap = THROW, left/right wrist step = presentation arrow.');
   }
   remote.onEvent((message) => coordinator.send(message));
 
