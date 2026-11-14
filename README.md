@@ -15,7 +15,8 @@ Open `http://127.0.0.1:8000/docs` for request/response schemas and interactive
 examples. See [`docs/api.md`](docs/api.md) for the three input contracts,
 device status, photo retrieval, LAN setup, and client examples.
 The current teammate payloads use `POST /v1/band/events?device_id=...` without
-renaming `type`, `delta`, `direction`, or `text`. See
+renaming `type`, `direction`, or `text`. Gestures are `step` (left/right swipe),
+`toggle` (single tap), and `select` (double tap); `adjust` has been removed. See
 [`docs/sdk-compatibility.md`](docs/sdk-compatibility.md) for SDK capabilities,
 simulator coverage, and differences from the remote target specification.
 

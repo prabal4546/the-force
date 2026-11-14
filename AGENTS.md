@@ -42,7 +42,9 @@ automatically by the API. Never commit tokens, photos, or local credentials.
 2. Register the logical adapter with `POST /v1/devices/connect`. `hardware_status`
    is a client report. A `registered` response does not establish a BLE session.
 3. Band: `POST /v1/band/events?device_id=<registered-id>` accepts the teammate's
-   unchanged `adjust`, `step`, `toggle`, `select`, and finalized `command` bodies.
+   `step`, `toggle`, `select`, and finalized `command` bodies. Gesture `step`
+   means -1 for a left swipe or 1 for a right swipe, one event per swipe.
+   The removed `adjust` event is rejected.
    A **202** `accepted` response means buffered input only.
 4. Glasses: set the connected Mentra client's `requestPhoto` webhook URL to
    `/v1/glasses/photos?device_id=<registered-id>`. The uploader sends multipart
@@ -52,14 +54,14 @@ automatically by the API. Never commit tokens, photos, or local credentials.
    URLs and in-memory indexes are not durable across server restarts.
 
 Generate a new optional `Idempotency-Key` per distinct band event; reuse it only
-for that event's retry, not all increments of a wrist twist. Register devices
-again after server restart. Use one API worker.
+for that event's retry. Consecutive swipes are distinct events even when they
+share a direction. Register devices again after server restart. Use one API worker.
 
 ## Hardware boundaries
 
 - Vexo supports direct Mac BLE or USB. The band owner owns the real connection,
   stream configuration, reconnection, gesture recognition, and forwarding.
-- `tap` and `double-tap` are native Vexo events. `adjust` and `step` require an IMU
+- `tap` and `double-tap` are native Vexo events. `step` requires an IMU
   recognizer. Native audio is Opus, not text. The band has no speaker.
 - `command` requires separately implemented STT. `say` is outbound playback, not
   an accepted input; this API does not implement TTS or command delivery.
@@ -70,6 +72,12 @@ again after server restart. Use one API worker.
   transmit it externally to run mock tests.
 
 ## Change discipline
+
+Work only on `codex/api`. After a completed change passes verification, commit and
+push it to `origin/codex/api` without requesting another approval. Fetch before
+pushing and integrate relevant remote updates into this branch. Do not modify,
+check out, or push any other branch. Never force-push or merge this branch into
+`main` without a new explicit request from the user.
 
 Keep hardware SDK dependencies out of the intake implementation; SDK imports in
 contract tests are fixtures only. Update contracts and consumers together.

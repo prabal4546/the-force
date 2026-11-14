@@ -25,9 +25,6 @@ class BandContractTests(unittest.TestCase):
 
     def test_teammate_payloads_are_accepted_without_invented_sdk_fields(self):
         payloads = [
-            {"type": "adjust", "delta": 0.05},
-            {"type": "adjust", "delta": -1.0},
-            {"type": "adjust", "delta": 1.0},
             {"type": "step", "direction": -1},
             {"type": "step", "direction": 1},
             {"type": "toggle"},
@@ -49,11 +46,6 @@ class BandContractTests(unittest.TestCase):
 
     def test_invalid_values_are_rejected_instead_of_coerced(self):
         payloads = [
-            {"type": "adjust", "delta": 1.01},
-            {"type": "adjust", "delta": -1.01},
-            {"type": "adjust", "delta": True},
-            {"type": "adjust", "delta": "0.05"},
-            {"type": "adjust"},
             {"type": "step", "direction": 0},
             {"type": "step", "direction": 2},
             {"type": "step", "direction": True},
@@ -71,21 +63,25 @@ class BandContractTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 self.assertEqual(self.send(payload).status_code, 422)
 
-    def test_nonfinite_adjust_is_rejected(self):
+    def test_removed_adjust_is_rejected(self):
+        response = self.send({"type": "adjust", "delta": 0.05})
+        self.assertEqual(response.status_code, 422)
+
+    def test_nonfinite_direction_is_rejected(self):
         response = self.client.post(
             "/v1/band/events?device_id=band-test",
-            content='{"type":"adjust","delta":1e999}',
+            content='{"type":"step","direction":1e999}',
             headers={"Content-Type": "application/json"},
         )
         self.assertEqual(response.status_code, 422)
 
     def test_optional_retry_key_deduplicates_and_detects_changed_payloads(self):
         headers = {"Idempotency-Key": "event-001"}
-        first = self.send({"type": "adjust", "delta": 0.05}, headers=headers)
-        repeated = self.send({"type": "adjust", "delta": 0.05}, headers=headers)
+        first = self.send({"type": "step", "direction": 1}, headers=headers)
+        repeated = self.send({"type": "step", "direction": 1}, headers=headers)
         self.assertEqual(first.status_code, 202)
         self.assertEqual(repeated.json(), first.json())
-        conflict = self.send({"type": "adjust", "delta": 0.1}, headers=headers)
+        conflict = self.send({"type": "step", "direction": -1}, headers=headers)
         self.assertEqual(conflict.status_code, 409)
 
     def test_retry_keys_are_scoped_to_each_band(self):
@@ -128,3 +124,8 @@ class BandContractTests(unittest.TestCase):
         schema = self.client.get("/openapi.json").json()
         direction = schema["components"]["schemas"]["StepInput"]["properties"]["direction"]
         self.assertEqual(direction["enum"], [-1, 1])
+
+    def test_openapi_removes_adjust_without_changing_other_band_inputs(self):
+        schema = self.client.get("/openapi.json").json()
+        body = schema["paths"]["/v1/band/events"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+        self.assertEqual(set(body["discriminator"]["mapping"]), {"step", "toggle", "select", "command"})

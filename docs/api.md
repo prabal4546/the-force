@@ -86,11 +86,16 @@ The JSON body is the teammate's original payload, unchanged:
 
 | Event | JSON body | Validation |
 | --- | --- | --- |
-| Wrist adjustment | `{"type":"adjust","delta":0.05}` | Finite number from -1 to 1 |
-| Previous / next | `{"type":"step","direction":1}` | JSON integer -1 or 1; no string/boolean coercion |
+| Swipe left / right | `{"type":"step","direction":1}` | JSON integer -1 for left or 1 for right; one event per swipe |
 | Single tap | `{"type":"toggle"}` | No additional fields |
 | Double tap | `{"type":"select"}` | No additional fields |
 | Completed transcript | `{"type":"command","text":"set a ten minute timer"}` | Nonblank raw text, at most 4000 characters |
+
+The updated gesture contract contains only `step`, `toggle`, and `select`.
+The former `adjust` event is no longer accepted and returns **422**.
+`direction` describes physical swipe direction, not an implicit previous/next or
+window movement command. The hub owns that business mapping. Voice input remains
+unchanged.
 
 The `device_id` query is adapter configuration, not an invented SDK event field.
 No client timestamp, confidence, or event ID is required. The server generates an
@@ -124,9 +129,10 @@ This endpoint does not yet publish events to the older WebSocket coordinator.
 numbers, underscores, or hyphens. Within the retained buffer, reuse the same key
 for retries of the same event: matching payload returns the original response;
 changed payload returns **409**. Keys are scoped per device. Without a key, every
-request is a new event. Generate a new key for every incremental `adjust` event,
-not one key for an entire wrist twist. No server-side half-second throttle is
-applied, because it would discard valid adjustment increments.
+request is a new event. Send one `step` message per swipe and generate a new key
+for each distinct swipe, even when consecutive swipes have the same direction.
+Reuse the key only when retrying delivery of that same event. No recognizer
+cooldown or posture guarantee is enforced by this intake endpoint.
 
 `say` is an outbound playback instruction, not a band input, and returns **422**
 here. Playback and a command-delivery channel are not implemented in this slice.

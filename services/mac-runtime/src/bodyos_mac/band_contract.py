@@ -7,14 +7,12 @@ class BandInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
 
 
-class AdjustInput(BandInput):
-    type: Literal["adjust"]
-    delta: float = Field(ge=-1, le=1)
-
-
 class StepInput(BandInput):
     type: Literal["step"]
-    direction: int = Field(ge=-1, le=1, json_schema_extra={"enum": [-1, 1]})
+    direction: int = Field(
+        ge=-1, le=1, json_schema_extra={"enum": [-1, 1]},
+        description="Swipe direction: -1 for left, 1 for right. One event per swipe.",
+    )
 
     @field_validator("direction")
     @classmethod
@@ -37,4 +35,4 @@ class CommandInput(BandInput):
     text: str = Field(min_length=1, max_length=4000, pattern=r"\S")
 
 
-BandEvent = Union[AdjustInput, StepInput, ToggleInput, SelectInput, CommandInput]
+BandEvent = Union[StepInput, ToggleInput, SelectInput, CommandInput]

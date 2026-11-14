@@ -14,7 +14,8 @@ Sources checked:
   [hardware capability guide](../vendor/vexo-open-kit/AGENTS.md).
 - The official [Mentra Bluetooth camera documentation](https://docs.mentraglass.com/bluetooth-sdk/camera-streaming),
   checked on 2026-11-14. This camera path is for supported Mentra Live hardware.
-- The teammate's `adjust`, `step`, `toggle`, `select`, `command`, and `say` contract.
+- The teammate's updated gesture contract (`step`, `toggle`, `select`) and the
+  unchanged voice contract (`command`, `say`).
 - Remote `origin/main` commits `1379069` (`TARGET.md`) and `00d684b`
   (iPhone coordinator and Mac bridge integration), merged into this API branch.
 
@@ -24,9 +25,7 @@ Sources checked:
 | --- | --- | --- |
 | `toggle` | SDK event `kind: "tap"` after `configure(events=True)` | Band owner maps the event to `{"type":"toggle"}` |
 | `select` | SDK event `kind: "double-tap"` | Band owner maps the event; hub target selection is separate |
-| `adjust.delta` | SDK motion axes `ax`, `ay`, `az`, `gx`, `gy`, `gz` | Band owner's recognizer produces normalized increments; not a native SDK field |
-| `step.direction` | The same raw motion axes | Band owner's recognizer classifies a flick; not the activity stream's lifetime step count |
-| Forearm level, raised wrist, cooldown, exclusivity | Raw motion is available; these are not SDK guarantees | Band owner implements and tests the recognizer/state machine |
+| `step.direction` | SDK motion axes `ax`, `ay`, `az`, `gx`, `gy`, `gz` | Band owner's recognizer emits one message per swipe: -1 left, 1 right; not the activity stream's lifetime step count |
 | `command.text` | SDK audio provides raw Opus packets, not text | A separately chosen STT pipeline produces one finalized transcript |
 | `say.text` | Not a band hardware capability | A Mac, phone, or supported glasses audio adapter must perform playback |
 | `device_id` | App configuration | Register the logical device, then supply it in the URL query |
@@ -52,9 +51,10 @@ The teammate's voice contract is feasible as an adapter/system interface, not as
 a statement that the band itself supplies transcripts and plays speech. This
 branch accepts the completed `command` payload but implements neither STT nor TTS.
 
-The half-second guarantee must also distinguish a discrete gesture cooldown from
-the small increments during a continuous twist. The API accepts each increment;
-it does not invent or enforce recognizer timing rules.
+The updated gesture contract has no continuous twist event; `adjust` is rejected.
+It defines one `step` message per recognized swipe. Physical left/right direction
+does not automatically mean previous/next or window movement. The hub must choose
+that mapping explicitly. The API does not invent posture or cooldown guarantees.
 
 ## Glasses: capture on the client, upload to the BE
 
