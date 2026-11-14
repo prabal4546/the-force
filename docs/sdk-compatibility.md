@@ -50,6 +50,8 @@ Do not promise simultaneous arbitrary LED colors and active microphone capture.
 The teammate's voice contract is feasible as an adapter/system interface, not as
 a statement that the band itself supplies transcripts and plays speech. This
 branch accepts the completed `command` payload but implements neither STT nor TTS.
+Completed transcripts are persisted and queryable through the
+[voice command API](commands.md); persistence does not imply action execution.
 
 The updated gesture contract has no continuous twist event; `adjust` is rejected.
 It defines one `step` message per recognized swipe. Physical left/right direction
