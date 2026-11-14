@@ -186,8 +186,8 @@ async function main() {
   console.log(`  Live video (RTMP): ${rtmpUrl}   (run "npm run video" for this)`);
   console.log(`  Saving to:         ${receiver.store.dir}`);
   console.log(cfg.bodyos.url
-    ? `  Also keeping in:   BodyOS API ${cfg.bodyos.url} (device ${cfg.bodyos.deviceId}): photos only, videos stay in data/video`
-    : '  BodyOS API:        off (set BODYOS_API_URL to keep photos there too)');
+    ? `  Also keeping in:   BodyOS API ${cfg.bodyos.url} (device ${cfg.bodyos.deviceId}): photos and videos`
+    : '  BodyOS API:        off (set BODYOS_API_URL to keep photos and videos there too)');
   console.log('');
   console.log('In the Mentra example app: Camera screen, turn on "Use cloud server", paste the Media upload URL,');
   console.log('then take photos or record video. The glasses must be on the same Wi-Fi as this computer.');

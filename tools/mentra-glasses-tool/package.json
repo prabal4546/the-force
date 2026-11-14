@@ -10,6 +10,7 @@
     "demo": "node src/demo.mjs",
     "receive": "node src/receiver.mjs",
     "video": "bash scripts/record-video.sh",
+    "send": "node src/bodyos.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {

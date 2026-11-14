@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { apiRequestId, forwardToBodyos, readBodyosConfig } from '../src/bodyos.mjs';
+import { apiRequestId, bodyosClient, forwardToBodyos, kindOf, readBodyosConfig } from '../src/bodyos.mjs';
 import { createReceiver } from '../src/receiver.mjs';
 import { SessionStore } from '../src/store.mjs';
 
 const quiet = { log() {}, warn() {} };
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'bodyos-'));
 const jpeg = () => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(500, 3), Buffer.from([0xff, 0xd9])]);
+const mp4 = (fill = 1) => Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom'), Buffer.alloc(5000, fill)]);
 const events = (store) => fs.readFileSync(path.join(store.dir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
 
 /**
@@ -17,7 +18,7 @@ const events = (store) => fs.readFileSync(path.join(store.dir, 'events.jsonl'), 
  * a list of HTTP statuses, used up one per photo call.
  */
 function fakeApi({ token = '', script = [] } = {}) {
-  const api = { calls: [], devices: new Set(), photos: [] };
+  const api = { calls: [], devices: new Set(), photos: [], videos: [] };
   const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   api.fetch = async (url, init) => {
     const u = new URL(url);
@@ -30,19 +31,22 @@ function fakeApi({ token = '', script = [] } = {}) {
       api.devices.add(body.device_id);
       return reply(200, { ...body, status: 'registered' });
     }
-    if (u.pathname === '/v1/glasses/photos') {
+    const kind = { '/v1/glasses/photos': 'photo', '/v1/glasses/videos': 'video' }[u.pathname];
+    if (kind) {
       const next = script.shift();
       if (next) return reply(next, { detail: `scripted ${next}` });
       const deviceId = u.searchParams.get('device_id');
       if (!api.devices.has(deviceId)) return reply(404, { detail: 'Unknown device' });
       const form = init.body;
-      const photo = form.get('photo');
+      const file = form.get(kind);
+      assert.ok(file, `multipart field "${kind}" missing`);
       const requestId = form.get('requestId');
       assert.ok(requestId.length >= 1 && requestId.length <= 128);
-      const bytes = Buffer.from(await photo.arrayBuffer());
-      api.photos.push({ deviceId, requestId, type: photo.type, bytes });
-      const id = `art-${api.photos.length}`;
-      return reply(201, { status: 'received', request_id: requestId, device_id: deviceId, artifact_id: id, photoUrl: `http://api/v1/artifacts/${id}` });
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const list = kind === 'photo' ? api.photos : api.videos;
+      list.push({ deviceId, requestId, type: file.type, bytes });
+      const id = `${kind}-${list.length}`;
+      return reply(201, { status: 'received', request_id: requestId, device_id: deviceId, artifact_id: id, [`${kind}Url`]: `http://api/v1/artifacts/${id}` });
     }
     return reply(404, { detail: 'Not Found' });
   };
@@ -82,7 +86,9 @@ test('each saved photo is registered and kept in the API, and the artifact is wr
   assert.equal(api.photos[0].type, 'image/jpeg');
   assert.deepEqual(api.photos[0].bytes, jpeg());
   const kept = events(store).filter((e) => e.type === 'bodyos_stored');
-  assert.deepEqual(kept.map((e) => e.artifactId), ['art-1', 'art-2']);
+  assert.deepEqual(kept.map((e) => e.artifactId), ['photo-1', 'photo-2']);
+  assert.equal(kept[0].url, 'http://api/v1/artifacts/photo-1');
+  assert.equal(kept[0].kind, 'photo');
   assert.equal(kept[0].file, events(store).find((e) => e.type === 'photo').file);
   assert.deepEqual(f.stats, { stored: 2, failed: 0, skipped: 0 });
 });
@@ -124,7 +130,7 @@ test('a wrong token fails at once, visibly, and the local photo stays', async ()
   assert.ok(warnings.some((w) => /copy in data\/ is safe/.test(w)));
 });
 
-test('the API keeps JPEG and PNG only: a WebP photo stays local and says why', async () => {
+test('a WebP photo stays local and says why', async () => {
   const api = fakeApi();
   const store = new SessionStore(tmp(), 't');
   const f = forwardToBodyos(store, settings(api));
@@ -132,7 +138,7 @@ test('the API keeps JPEG and PNG only: a WebP photo stays local and says why', a
   await f.drain();
   await store.close();
   assert.equal(api.photos.length, 0);
-  assert.equal(events(store).find((e) => e.type === 'bodyos_skipped').reason, 'the API takes JPEG and PNG only');
+  assert.match(events(store).find((e) => e.type === 'bodyos_skipped').reason, /JPEG\/PNG photos and MP4\/MOV videos only/);
 });
 
 test('receiver: a photo from the glasses ends up in data/ and in the API before close() returns', async () => {
@@ -146,5 +152,49 @@ test('receiver: a photo from the glasses ends up in data/ and in the API before 
   await r.close();
   assert.equal(api.photos.length, 1);
   assert.match(api.photos[0].requestId, /^from-glasses-photo_000001_/);
-  assert.equal(events(r.store).find((e) => e.type === 'bodyos_stored').artifactId, 'art-1');
+  assert.equal(events(r.store).find((e) => e.type === 'bodyos_stored').artifactId, 'photo-1');
+});
+
+test('kinds: photos and videos by extension, anything else is not sent', () => {
+  assert.equal(kindOf('a/photo.JPG'), 'photo');
+  assert.equal(kindOf('a/p.png'), 'photo');
+  assert.equal(kindOf('a/recording.mp4'), 'video');
+  assert.equal(kindOf('a/clip.MOV'), 'video');
+  assert.equal(kindOf('a/p.webp'), null);
+  assert.equal(kindOf('a/events.jsonl'), null);
+});
+
+test('receiver: a video clip from the glasses ends up in data/video and in the API', async () => {
+  const api = fakeApi();
+  const r = await createReceiver({ dataDir: tmp(), port: 0, host: '127.0.0.1', publicHost: '127.0.0.1', log: quiet, bodyos: settings(api) });
+  const form = new FormData();
+  form.append('requestId', 'clip-7');
+  form.append('video', new Blob([mp4()], { type: 'video/mp4' }), 'clip.mp4');
+  const res = await fetch(`http://127.0.0.1:${r.port}/upload`, { method: 'POST', body: form });
+  assert.equal(res.status, 200);
+  await r.close();
+  assert.equal(api.videos.length, 1);
+  assert.deepEqual(api.videos[0].bytes, mp4());
+  assert.equal(api.videos[0].type, 'video/mp4');
+  assert.match(api.videos[0].requestId, /^clip-7-recording$/);
+  const kept = events(r.store).find((e) => e.type === 'bodyos_stored');
+  assert.equal(kept.kind, 'video');
+  assert.equal(kept.url, 'http://api/v1/artifacts/video-1');
+  assert.ok(fs.existsSync(path.join(path.dirname(r.store.dir), kept.file)));
+});
+
+test('send: a recording on disk (from npm run video) is sent as a video; a rejected one says why', async () => {
+  const dir = tmp();
+  const file = path.join(dir, 'recording.mp4');
+  fs.writeFileSync(file, mp4(2));
+  const api = fakeApi();
+  const client = bodyosClient(settings(api));
+  const r = await client.send(file);
+  assert.equal(r.kind, 'video');
+  assert.equal(r.url, 'http://api/v1/artifacts/video-1');
+  assert.deepEqual(api.videos[0].bytes, mp4(2));
+
+  const tooBig = bodyosClient(settings(fakeApi({ script: [413] })));
+  await assert.rejects(tooBig.send(file), /HTTP 413/);
+  await assert.rejects(client.send(path.join(dir, 'notes.txt')), /only/);
 });
