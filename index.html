@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Band 28</title>
+<style>
+  body { font: 16px system-ui, sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
+  button { font: inherit; padding: 6px 14px; }
+  table { border-collapse: collapse; margin: 8px 0; }
+  td { padding: 4px 16px 4px 0; font-variant-numeric: tabular-nums; }
+  td.n { text-align: right; min-width: 80px; font-family: ui-monospace, monospace; }
+  #taps { font-family: ui-monospace, monospace; white-space: pre; height: 180px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; }
+</style>
+
+<h1>Band 28</h1>
+<p>
+  <button id="connect">Connect</button>
+  <button id="disconnect" disabled>Disconnect</button>
+</p>
+<p id="status">Not connected.</p>
+<p>Battery: <b id="battery">--</b></p>
+
+<h2>Motion</h2>
+<table>
+  <tr><td>ax</td><td class="n" id="ax">--</td><td>gx</td><td class="n" id="gx">--</td></tr>
+  <tr><td>ay</td><td class="n" id="ay">--</td><td>gy</td><td class="n" id="gy">--</td></tr>
+  <tr><td>az</td><td class="n" id="az">--</td><td>gz</td><td class="n" id="gz">--</td></tr>
+  <tr><td>(g)</td><td></td><td>(deg/s)</td><td></td></tr>
+</table>
+
+<h2>Taps</h2>
+<div id="taps"></div>
+
+<script>  // a double-clicked file cannot load the library: say so on the page
+  if (location.protocol === 'file:') document.getElementById('status').textContent =
+    'Opened by double-click. In ~/vexo-remote run:  python3 -m http.server 8000 --bind 127.0.0.1  then open http://localhost:8000/index.html';
+</script>
+<script type="module">
+  import { Band } from './vexo-open-kit/js/src/index.js';
+
+  const BAND = 28;                                   // our team's band number: Vexo-HACK-28
+  const SIM = location.search.includes('sim');       // index.html?sim = pretend band, no hardware
+  const $ = (id) => document.getElementById(id);
+  const say = (text) => { $('status').textContent = text; };
+  let band = null;
+
+  function setConnected(on) {
+    $('connect').disabled = on;
+    $('disconnect').disabled = !on;
+  }
+
+  function addTap(kind) {
+    const time = new Date().toLocaleTimeString();
+    $('taps').textContent = time + '  ' + kind + '\n' + $('taps').textContent;
+  }
+
+  $('connect').onclick = async () => {
+    try {
+      say('Connecting... pick Vexo-HACK-28 in the list.');
+      band = await Band.connect(BAND, SIM ? { transport: 'sim' } : {});
+      setConnected(true);
+      say('Connected to ' + band.name + '.');
+
+      band.on('motion', (m) => {
+        $('ax').textContent = m.ax.toFixed(2);
+        $('ay').textContent = m.ay.toFixed(2);
+        $('az').textContent = m.az.toFixed(2);
+        $('gx').textContent = m.gx.toFixed(1);
+        $('gy').textContent = m.gy.toFixed(1);
+        $('gz').textContent = m.gz.toFixed(1);
+      });
+      band.on('tap', () => addTap('tap'));
+      band.on('double-tap', () => addTap('double-tap'));
+      band.on('battery', (b) => {
+        $('battery').textContent = b.percent + '%' + (b.charging ? ' (charging)' : '');
+      });
+      band.on('disconnect', (e) => {
+        setConnected(false);
+        say('Disconnected (' + e.reason + ').');
+      });
+
+      await band.configure({ motion: 25, events: true, battery: true });
+    } catch (e) {
+      setConnected(false);
+      say(e.message);                                // the library's messages say what to do next
+    }
+  };
+
+  $('disconnect').onclick = async () => {
+    try { await band.disconnect(); } catch (e) { say(e.message); }
+  };
+</script>
