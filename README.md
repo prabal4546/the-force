@@ -41,6 +41,31 @@ Then open <http://localhost:8000/index.html> in Chrome or Edge, press **Connect*
 `Vexo-HACK-28` in the list. To try it without the band, open
 <http://localhost:8000/index.html?sim> instead.
 
+## Remote: gestures (band module)
+
+`band-module.js` turns wrist gestures into messages for the hub. It exports
+`onEvent(callback)` for outgoing messages and `handle(message)` for incoming ones, and has
+no transport of its own. The maths is in `gestures.js`; every threshold is in `CONFIG` at
+the top of that file.
+
+On the dashboard: double-tap the band, close any other tab that uses it, press **Connect**,
+then **Calibrate** and follow the three prompts (arm level, twist starting clockwise, flick
+starting to the right). The calibration is kept in the browser's localStorage.
+
+| Gesture | Message |
+|---|---|
+| Twist, per 15 degrees | `{ "type": "adjust", "delta": 0.05 }` (negative the other way) |
+| Flick | `{ "type": "step", "direction": 1 }` or `-1` |
+| Tap | `{ "type": "toggle" }` |
+| Double-tap | `{ "type": "select" }` |
+
+Twist and flick only count while the forearm is within 35 degrees of the level pose.
+
+Tests (Node 18 or newer, no band needed):
+
+    npm test
+
 ## Using a different band
 
-Change `BAND = 28` near the top of both `band_check.py` and `index.html`.
+Change `BAND = 28` near the top of both `band_check.py` and `index.html`. The band module
+takes the connected band from the page and has no number of its own.

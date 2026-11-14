@@ -7,6 +7,15 @@
   .graph { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
   .graph span { width: 110px; font-family: ui-monospace, monospace; font-size: 14px; }
   canvas { border: 1px solid #ccc; width: 380px; height: 70px; }
+  #log { font-family: ui-monospace, monospace; white-space: pre; height: 180px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; }
+  #prompt { font-size: 20px; min-height: 28px; font-weight: 600; }
+  #readouts td { padding: 2px 14px 2px 0; }
+  #readouts td:last-child { font-family: ui-monospace, monospace; }
+  .remote { display: flex; gap: 24px; align-items: center; }
+  #dial { width: 110px; height: 110px; border: 3px solid #333; border-radius: 50%; position: relative; flex: none; }
+  #dial i { position: absolute; left: 50%; top: 6px; width: 4px; height: 49px; margin-left: -2px; background: #06c; transform-origin: 50% 100%; border-radius: 2px; }
+  #dial b { position: absolute; left: 0; right: 0; bottom: 14px; text-align: center; font-size: 14px; }
+  .on { color: #080; font-weight: 600; } .off { color: #a00; }
   #taps { font-family: ui-monospace, monospace; white-space: pre; height: 180px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; }
 </style>
 
@@ -17,6 +26,22 @@
 </p>
 <p id="status">Not connected.</p>
 <p>Battery: <b id="battery">--</b></p>
+<p>Before each connect: double-tap the band, and close any other tab that uses it.</p>
+
+<h2>Remote</h2>
+<p><button id="calibrate" disabled>Calibrate</button></p>
+<p id="prompt"></p>
+<div class="remote">
+  <div id="dial"><i id="needle"></i><b id="level">0.50</b></div>
+  <table id="readouts">
+    <tr><td>Clutch</td><td id="clutch">--</td></tr>
+    <tr><td>Twist axis</td><td id="twistAxis">--</td></tr>
+    <tr><td>Flick axis</td><td id="flickAxis">--</td></tr>
+    <tr><td>Tap before double-tap</td><td id="tapCheck">--</td></tr>
+  </table>
+</div>
+<h3>Outgoing messages</h3>
+<div id="log"></div>
 
 <h2>Motion</h2>
 <p>Last 10 seconds. Acceleration in g, turning in deg/s.</p>
@@ -31,6 +56,7 @@
 </script>
 <script type="module">
   import { Band } from './vexo-open-kit/js/src/index.js';
+  import * as remote from './band-module.js';
 
   const BAND = 28;                                   // our team's band number: Vexo-HACK-28
   const SIM = location.search.includes('sim');       // index.html?sim = pretend band, no hardware
@@ -39,7 +65,7 @@
   let band = null;
 
   // One small graph per motion value, each holding the last 10 seconds.
-  const RATE = 25;                                   // readings a second
+  const RATE = remote.CONFIG.motionRate;             // readings a second
   const POINTS = RATE * 10;
   const graphs = [['ax', 1.5], ['ay', 1.5], ['az', 1.5], ['gx', 100], ['gy', 100], ['gz', 100]].map(([name, minScale]) => {
     const row = document.createElement('div');
@@ -70,11 +96,62 @@
       });
       c.stroke();
     }
+    showRemote();
     requestAnimationFrame(draw);
   }
+
+  // ---- Remote: event log, dial, clutch and axis readouts, calibration ----
+  let dial = 0.5;                                    // what the adjust messages add up to, 0..1
+  remote.onEvent((message) => {
+    if (message.type === 'adjust') dial = Math.max(0, Math.min(1, dial + message.delta));
+    $('log').textContent = new Date().toLocaleTimeString() + '  ' + JSON.stringify(message) + '\n' + $('log').textContent.slice(0, 4000);
+  });
+  remote.onNote((text) => say(text));
+
+  function showRemote() {
+    const state = remote.getState(), cal = state.calibration;
+    $('needle').style.transform = 'rotate(' + ((dial - 0.5) * 270) + 'deg)';
+    $('level').textContent = dial.toFixed(2);
+    const clutch = $('clutch');
+    if (!cal) { clutch.textContent = 'not calibrated'; clutch.className = ''; }
+    else if (state.angle === null) { clutch.textContent = '--'; clutch.className = ''; }
+    else {
+      clutch.textContent = (state.clutch ? 'ON' : 'off') + '  (' + state.angle.toFixed(0) + ' deg from level)' + (state.twisting ? '  twisting' : '');
+      clutch.className = state.clutch ? 'on' : 'off';
+    }
+    $('twistAxis').textContent = cal ? cal.twistAxis + (cal.twistSign > 0 ? '  (+ is clockwise)' : '  (- is clockwise)') : '--';
+    $('flickAxis').textContent = cal ? cal.flickAxis + (cal.flickSign > 0 ? '  (+ is right)' : '  (- is right)') : '--';
+    const t = state.tapCheck;
+    $('tapCheck').textContent = t.doubleTaps === 0 ? 'double-tap a few times to check' : t.withTapBefore + ' of ' + t.doubleTaps + ' double-taps';
+  }
+
+  const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+  async function countdown(text) {                   // time to get into the pose
+    for (let n = 3; n > 0; n--) { $('prompt').textContent = text + '  Starting in ' + n + '...'; await pause(1000); }
+  }
+  async function pose(getReady, doing) {
+    await countdown(getReady);
+    $('prompt').textContent = doing + '  Recording 2 seconds...';
+    return remote.recordPose();
+  }
+
+  $('calibrate').onclick = async () => {
+    $('calibrate').disabled = true;
+    try {
+      const level = await pose('1 of 3: hold your arm level, as if reading a watch.', 'Hold still.');
+      const twist = await pose('2 of 3: twist like a doorknob. Start by turning clockwise.', 'Twist back and forth.');
+      const flick = await pose('3 of 3: flick your hand side to side. Start to the right.', 'Flick side to side.');
+      remote.finishCalibration(level, twist, flick);
+      $('prompt').textContent = 'Calibrated and saved.';
+    } catch (e) {
+      $('prompt').textContent = e.message + ' Press Calibrate to try again.';
+    }
+    $('calibrate').disabled = !remote.getState().connected;
+  };
   draw();
 
   function setConnected(on) {
+    $('calibrate').disabled = !on;
     $('connect').disabled = on;
     $('disconnect').disabled = !on;
   }
@@ -107,7 +184,9 @@
         say('Disconnected (' + e.reason + ').');
       });
 
-      await band.configure({ motion: RATE, events: true, battery: true });
+      await remote.attach(band);                     // motion at 100 a second, both sensors, plus events
+      await band.configure({ battery: true });
+      if (!remote.getState().calibration) $('prompt').textContent = 'Press Calibrate before using gestures.';
     } catch (e) {
       setConnected(false);
       say(e.message);                                // the library's messages say what to do next
