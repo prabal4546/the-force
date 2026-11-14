@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const api = window.glasses;
 
@@ -44,7 +44,8 @@ function useLive() {
 const phaseOf = (live) => (!live.online ? 'offline' : live.status?.sessions?.length ? 'connected' : 'waiting');
 const PHASE_TEXT = { offline: 'Recorder off', waiting: 'Waiting for glasses', connected: 'Glasses connected' };
 const modeOf = (live) => live.status?.recorder?.mode ?? null;
-const phaseLabel = (live, phase) => (phase === 'connected' && modeOf(live) === 'receiver' ? 'Receiving from glasses' : PHASE_TEXT[phase]);
+const CONNECTED_TEXT = { receiver: 'Receiving from glasses', frames: 'Cutting pictures from live video' };
+const phaseLabel = (live, phase) => (phase === 'connected' ? CONNECTED_TEXT[modeOf(live)] ?? PHASE_TEXT[phase] : PHASE_TEXT[phase]);
 
 export default function App() {
   const [lib, setLib] = useState(null);
@@ -60,9 +61,13 @@ export default function App() {
   }, [refresh]);
 
   // A new photo from the glasses: look at the folder again right away.
+  // At most once a second: a live-video run can send many pictures a second.
   const lastEvent = live.events.at(-1);
+  const lastRefresh = useRef(0);
   useEffect(() => {
-    if (lastEvent?.event?.type === 'photo') refresh();
+    if (lastEvent?.event?.type !== 'photo' || Date.now() - lastRefresh.current < 1000) return;
+    lastRefresh.current = Date.now();
+    refresh();
   }, [lastEvent, refresh]);
 
   // Drop a selection whose folder disappeared.
@@ -122,7 +127,7 @@ export default function App() {
               active={selected?.kind === 'session' && selected.id === s.id}
               onClick={() => setSelected({ kind: 'session', id: s.id })}
               title={fmtTime(s.time)}
-              sub={`${plural(s.photos.length, 'photo')} · ${plural(s.events, 'event')}`}
+              sub={`${plural(s.photoCount ?? s.photos.length, 'photo')} · ${plural(s.events, 'event')}`}
             />
           ))}
         </Section>
@@ -215,7 +220,9 @@ function SessionView({ session }) {
     };
   }, [tab, session.id]);
 
-  const meta = [session.label, plural(session.photos.length, 'photo'), plural(session.events, 'event'), session.imu ? plural(session.imu, 'IMU sample') : null]
+  const total = session.photoCount ?? session.photos.length;
+  const offset = total - session.photos.length; // the library lists the newest ones of a big run
+  const meta = [session.label, plural(total, 'photo'), plural(session.events, 'event'), session.imu ? plural(session.imu, 'IMU sample') : null]
     .filter(Boolean)
     .join(' · ');
 
@@ -233,7 +240,12 @@ function SessionView({ session }) {
 
       {tab === 'photos' &&
         (session.photos.length ? (
-          <Grid items={session.photos} onOpen={setOpen} />
+          <>
+            {offset > 0 && (
+              <p className="muted pad">Showing the newest {session.photos.length} of {total} photos. All of them are in the folder (Show in Finder).</p>
+            )}
+            <Grid items={session.photos} offset={offset} onOpen={setOpen} />
+          </>
         ) : (
           <p className="muted pad">No photos in this session.</p>
         ))}
@@ -243,13 +255,13 @@ function SessionView({ session }) {
   );
 }
 
-function Grid({ items, onOpen }) {
+function Grid({ items, onOpen, offset = 0 }) {
   return (
     <div className="grid">
       {items.map((rel, i) => (
         <button key={rel} className="thumb" onClick={() => onOpen(i)} title={rel.split('/').pop()}>
           <img src={mediaUrl(rel)} alt="" loading="lazy" draggable={false} />
-          <span className="thumb-n">{i + 1}</span>
+          <span className="thumb-n">{offset + i + 1}</span>
         </button>
       ))}
     </div>
@@ -417,6 +429,7 @@ function describe(e) {
 
 function LiveView({ live, phase, lib, onChanged }) {
   const [video, setVideo] = useState(false);
+  const [everyFrame, setEveryFrame] = useState(false);
   const [message, setMessage] = useState('');
   const [, setNow] = useState(0);
   useEffect(() => {
@@ -435,8 +448,9 @@ function LiveView({ live, phase, lib, onChanged }) {
   const latestVideo = videos.at(-1);
   const showVideo = latestVideo && (!latestPhoto || latestVideo.time > latestPhoto.time);
   const receiving = modeOf(live) === 'receiver';
+  const framesRun = modeOf(live) === 'frames'; // npm run frames started in a terminal
   const uploadUrl = receiving ? live.status?.recorder?.uploadUrl : null;
-  const rtmpUrl = receiving ? live.status?.recorder?.rtmpUrl : null;
+  const rtmpUrl = receiving || framesRun ? live.status?.recorder?.rtmpUrl : null;
   const [copied, setCopied] = useState('');
   const copy = async (text) => {
     try {
@@ -462,7 +476,8 @@ function LiveView({ live, phase, lib, onChanged }) {
 
   const start = async (mode) => {
     setMessage('');
-    const res = await api.startRecorder(mode, mode !== 'demo' && video);
+    const withVideo = mode !== 'demo' && video;
+    const res = await api.startRecorder(mode, withVideo, withVideo && everyFrame);
     if (!res?.ok) setMessage(res?.message ?? 'Could not start.');
   };
 
@@ -490,7 +505,7 @@ function LiveView({ live, phase, lib, onChanged }) {
               <strong>
                 {{ demo: 'Demo glasses running', receiver: 'Receiver running', glasses: 'Cloud recorder running' }[proc.recorder.mode] ?? 'Running'}
               </strong>
-              {proc.video.running && ' · receiving video'}
+              {proc.video.running && (proc.video.frames ? ' · every live-video frame becomes a picture' : ' · receiving video')}
             </p>
             <button onClick={() => api.stopRecorder()}>Stop</button>
           </>
@@ -502,6 +517,11 @@ function LiveView({ live, phase, lib, onChanged }) {
             <label className="check">
               <input type="checkbox" checked={video} onChange={(e) => setVideo(e.target.checked)} /> with live video
             </label>
+            {video && (
+              <label className="check" title="npm run frames: a JPEG per video frame, each sent to the BodyOS API when BODYOS_API_URL is set">
+                <input type="checkbox" checked={everyFrame} onChange={(e) => setEveryFrame(e.target.checked)} /> every frame as a picture
+              </label>
+            )}
             <span className="sep" />
             <button onClick={() => start('demo')}>Try demo glasses</button>
             <button onClick={() => start('glasses')}>Cloud recorder</button>
@@ -535,6 +555,18 @@ function LiveView({ live, phase, lib, onChanged }) {
         <section className="panel hint">
           <h2>Recorder is on. Waiting for the glasses</h2>
           <p>Open your app on the glasses from the MentraOS phone app. The glasses talk Bluetooth to the phone, the phone sends everything here.</p>
+        </section>
+      )}
+
+      {framesRun && rtmpUrl && (
+        <section className="panel urls">
+          <h2>Paste into Mentra’s app</h2>
+          <div className="url-row">
+            <span className="url-label">Live video (Stream screen)</span>
+            <code className="url">{rtmpUrl}</code>
+            <button onClick={() => copy(rtmpUrl)}>{copied === rtmpUrl ? 'Copied' : 'Copy'}</button>
+          </div>
+          <p className="muted">Every frame becomes a picture in this Mac’s data folder, and in the BodyOS API when it is set up.</p>
         </section>
       )}
 

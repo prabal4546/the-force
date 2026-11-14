@@ -53,11 +53,11 @@ function fakeApi({ token = '', script = [] } = {}) {
   return api;
 }
 
-const settings = (api, extra = {}) => ({ url: 'http://api', deviceId: 'mentra-live', log: quiet, fetchImpl: api.fetch, retryDelayMs: 1, ...extra });
+const settings = (api, extra = {}) => ({ url: 'http://api', deviceId: 'glasses-1', log: quiet, fetchImpl: api.fetch, retryDelayMs: 1, ...extra });
 
 test('config: off without a URL, checks the URL and the device id', () => {
   assert.equal(readBodyosConfig({}).url, '');
-  assert.equal(readBodyosConfig({}).deviceId, 'mentra-live');
+  assert.equal(readBodyosConfig({}).deviceId, 'glasses-1');
   assert.equal(readBodyosConfig({ BODYOS_API_URL: 'http://10.0.0.5:8000/' }).url, 'http://10.0.0.5:8000');
   assert.throws(() => readBodyosConfig({ BODYOS_API_URL: '10.0.0.5:8000' }), /http/);
   assert.throws(() => readBodyosConfig({ BODYOS_DEVICE_ID: '../x' }), /BODYOS_DEVICE_ID/);
@@ -80,7 +80,7 @@ test('each saved photo is registered and kept in the API, and the artifact is wr
   await store.savePhoto(jpeg(), 'image/png');
   await f.drain();
   await store.close();
-  assert.deepEqual([...api.devices], ['mentra-live']);
+  assert.deepEqual([...api.devices], ['glasses-1']);
   assert.equal(api.photos.length, 2);
   assert.match(api.photos[0].requestId, /^glasses-req-photo_000001_\d+$/);
   assert.equal(api.photos[0].type, 'image/jpeg');

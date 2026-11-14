@@ -126,3 +126,17 @@ test('uploads over the size limit are refused and not saved', async () => {
   assert.equal(r.store.photoCount, 0);
   await r.close();
 });
+
+test('TARGET.md\'s path /mentra/photo works the same as /upload', async () => {
+  const r = await createReceiver({ dataDir: tmp(), port: 0, host: '127.0.0.1', publicHost: '127.0.0.1', log: quiet });
+  const form = new FormData();
+  form.append('requestId', 'target-md');
+  form.append('photo', new Blob([jpeg()], { type: 'image/jpeg' }), 'p.jpg');
+  const res = await fetch(`http://127.0.0.1:${r.port}/mentra/photo`, { method: 'POST', body: form });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).requestId, 'target-md');
+  assert.equal(r.store.photoCount, 1);
+  const other = await fetch(`http://127.0.0.1:${r.port}/mentra/other`, { method: 'POST', body: form });
+  assert.equal(other.status, 404);
+  await r.close();
+});

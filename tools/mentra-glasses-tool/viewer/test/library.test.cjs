@@ -81,3 +81,25 @@ test('byte ranges for video seeking', () => {
 test('folder names that are not timestamps keep their name', () => {
   assert.deepEqual(parseFolderName('imu-only'), { time: null, label: 'imu-only' });
 });
+
+test('a big run of npm run frames lists its newest 600 pictures and the total; its recording is a video', () => {
+  const { MAX_LISTED } = require('../electron/library.cjs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lib-frames-'));
+  const name = '2026-11-14T22-55-19-501Z_stream';
+  fs.mkdirSync(path.join(root, name, 'photos'), { recursive: true });
+  fs.writeFileSync(path.join(root, name, 'events.jsonl'), '{"type":"frames_start"}\n');
+  for (let i = 1; i <= 650; i += 1) fs.writeFileSync(path.join(root, name, 'photos', `photo_${String(i).padStart(6, '0')}_1.jpg`), 'x');
+  fs.mkdirSync(path.join(root, 'video', name), { recursive: true });
+  fs.writeFileSync(path.join(root, 'video', name, 'recording.mp4'), 'mp4');
+  fs.writeFileSync(path.join(root, 'video', name, 'latest.jpg'), 'jpg');
+  const lib = scanLibrary(root);
+  const s = lib.sessions.find((x) => x.id === name);
+  assert.equal(MAX_LISTED, 600);
+  assert.equal(s.photoCount, 650);
+  assert.equal(s.photos.length, 600);
+  assert.equal(s.photos[0], `${name}/photos/photo_000051_1.jpg`);
+  assert.equal(s.photos.at(-1), `${name}/photos/photo_000650_1.jpg`);
+  const v = lib.videos.find((x) => x.id === name);
+  assert.equal(v.recording, `video/${name}/recording.mp4`);
+  assert.equal(v.latest, `video/${name}/latest.jpg`);
+});

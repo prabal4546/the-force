@@ -12,7 +12,7 @@ function createProcessManager({ toolDir, onUpdate, node = 'node' }) {
   const children = { recorder: null, video: null };
   const status = {
     recorder: { running: false, mode: null, exitCode: null },
-    video: { running: false, exitCode: null },
+    video: { running: false, exitCode: null, frames: false },
   };
   const log = [];
 
@@ -50,9 +50,10 @@ function createProcessManager({ toolDir, onUpdate, node = 'node' }) {
     /**
      * mode 'receiver' = take photos and videos straight from the glasses over Wi-Fi;
      * 'glasses' = the cloud recorder (MentraOS app + ngrok); 'demo' = pretend glasses.
-     * video (also receive the live RTMP stream) for 'receiver' and 'glasses'.
+     * video (also receive the live RTMP stream) for 'receiver' and 'glasses'; with frames, every frame
+     * of it also becomes a picture (npm run frames) instead of one per second (npm run video).
      */
-    start({ mode, video }) {
+    start({ mode, video, frames }) {
       if (children.recorder) return { ok: false, message: 'Already running.' };
       if (!SCRIPTS[mode]) return { ok: false, message: 'Unknown mode.' };
       if (mode === 'glasses') {
@@ -67,19 +68,22 @@ function createProcessManager({ toolDir, onUpdate, node = 'node' }) {
       }
       status.recorder.mode = mode;
       const withVideo = mode !== 'demo' && video === true;
-      if (withVideo) run('video', 'video', 'bash', ['scripts/record-video.sh'], {});
+      status.video.frames = withVideo && frames === true;
+      // The recorder already runs the viewer's live feed: frames must not start a second one.
+      if (status.video.frames) run('video', 'frames', node, ['src/frames.mjs'], { LIVE_PORT: '0' });
+      else if (withVideo) run('video', 'video', 'bash', ['scripts/record-video.sh'], {});
       run('recorder', mode, node, [SCRIPTS[mode]], { VIDEO: withVideo && mode === 'glasses' ? '1' : '0' });
       return { ok: true };
     },
 
-    /** Ask nicely (Ctrl+C), then force after 4 seconds. */
+    /** Ask nicely (Ctrl+C), then force after 30 seconds: the last pictures and the recording are still being sent to the API. */
     stop() {
       for (const child of Object.values(children)) {
         if (!child) continue;
         child.kill('SIGINT');
         setTimeout(() => {
           if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-        }, 4000).unref();
+        }, 30_000).unref();
       }
     },
 

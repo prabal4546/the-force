@@ -13,7 +13,7 @@ struct ReceivedMedia: Sendable {
 
 /// A tiny HTTP server on the iPhone that Mentra Live uploads photos and videos to.
 ///
-/// The glasses send `POST /upload` as multipart/form-data with a `photo` or `video` file and a
+/// The glasses send `POST /upload` (or `/mentra/photo`, the path in TARGET.md) as multipart/form-data with a `photo` or `video` file and a
 /// `requestId` field, straight over Wi-Fi, or (when Wi-Fi fails) over Bluetooth with the
 /// SDK on this iPhone doing the upload. Nothing leaves the local network.
 final class GlassesMediaReceiver: @unchecked Sendable {
@@ -161,7 +161,8 @@ final class GlassesMediaReceiver: @unchecked Sendable {
             respond(connection, status: 200, json: #"{"success":true}"#)
             return
         }
-        guard request.method == "POST", request.path == "/upload",
+        // /upload is what Mentra's own receiver uses; /mentra/photo is the path in TARGET.md.
+        guard request.method == "POST", request.path == "/upload" || request.path == "/mentra/photo",
               let boundary = Multipart.boundary(from: request.headers["content-type"])
         else {
             respond(connection, status: 404, json: #"{"success":false,"error":"not found"}"#)

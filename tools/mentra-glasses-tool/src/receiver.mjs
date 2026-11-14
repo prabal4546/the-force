@@ -130,7 +130,8 @@ export async function createReceiver({ dataDir, port = 8787, host = '0.0.0.0', t
       res.writeHead(200, { 'Content-Type': entry.type, 'Cache-Control': 'no-store' });
       return fs.createReadStream(entry.file).pipe(res);
     }
-    if (req.method === 'POST' && url.pathname === '/upload') {
+    // /upload is what Mentra's own receiver uses; /mentra/photo is the path in TARGET.md. Both work.
+    if (req.method === 'POST' && (url.pathname === '/upload' || url.pathname === '/mentra/photo')) {
       handleUpload(req, res).catch((err) => {
         log.warn(`upload failed: ${err.message}`);
         if (!res.headersSent) json(res, 500, { success: false, error: 'could not save' });

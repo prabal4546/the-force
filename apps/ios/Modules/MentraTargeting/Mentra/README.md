@@ -39,7 +39,7 @@ other teams' glasses may be in the room.
 ## How the photo gets to the iPhone
 
 Bluetooth carries the command only. The glasses upload the JPEG **over Wi-Fi** to
-`GlassesMediaReceiver` on the iPhone (`http://<iPhone's Wi-Fi address>:8787/upload`). If Wi-Fi does not
+`GlassesMediaReceiver` on the iPhone (`http://<iPhone's Wi-Fi address>:8787/upload`, or `/mentra/photo` as in TARGET.md). If Wi-Fi does not
 work, the SDK brings it over Bluetooth instead (a few seconds slower). Put the glasses on the same
 private router as the iPhone. The Info.plist keys this needs are already in `project.yml`.
 

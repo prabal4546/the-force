@@ -9,6 +9,10 @@ const TYPES = {
   '.mp4': 'video/mp4', '.mkv': 'video/x-matroska', '.webm': 'video/webm',
 };
 
+// A run of `npm run frames` holds a picture per video frame (thousands): the viewer lists the newest
+// ones and the total, so it stays quick. Every picture stays in the folder.
+const MAX_LISTED = 600;
+
 const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const mtime = (p) => { try { return fs.statSync(p).mtimeMs; } catch { return 0; } };
 const list = (p) => { try { return fs.readdirSync(p).sort(); } catch { return []; } };
@@ -36,12 +40,13 @@ function scanLibrary(root) {
     const dir = path.join(root, name);
     if (name === 'video' || !isDir(dir)) continue;
     const photosDir = path.join(dir, 'photos');
-    const photos = list(photosDir).filter((f) => IMAGE.has(path.extname(f).toLowerCase())).map((f) => rel(root, path.join(photosDir, f)));
+    const allPhotos = list(photosDir).filter((f) => IMAGE.has(path.extname(f).toLowerCase()));
+    const photos = allPhotos.slice(-MAX_LISTED).map((f) => rel(root, path.join(photosDir, f)));
     const hasEvents = fs.existsSync(path.join(dir, 'events.jsonl'));
     if (!photos.length && !hasEvents && !fs.existsSync(path.join(dir, 'imu.jsonl'))) continue;
     const { time, label } = parseFolderName(name);
     sessions.push({
-      id: name, label, time: time ?? mtime(dir), photos,
+      id: name, label, time: time ?? mtime(dir), photos, photoCount: allPhotos.length,
       events: countLines(path.join(dir, 'events.jsonl')),
       imu: countLines(path.join(dir, 'imu.jsonl')),
     });
@@ -125,4 +130,4 @@ function parseRange(header, size) {
   return { start, end };
 }
 
-module.exports = { scanLibrary, readEvents, resolveInside, contentType, parseRange, parseFolderName };
+module.exports = { MAX_LISTED, scanLibrary, readEvents, resolveInside, contentType, parseRange, parseFolderName };

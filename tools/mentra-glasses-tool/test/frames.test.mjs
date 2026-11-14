@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { JpegSplitter, ffmpegArgs, startFrames } from '../src/frames.mjs';
+import { JpegSplitter, ffmpegArgs, startFrames, throttleToLive } from '../src/frames.mjs';
+import { SessionStore } from '../src/store.mjs';
 import { readConfig } from '../src/config.mjs';
 
 const quiet = { log() {}, warn() {} };
@@ -85,7 +86,7 @@ test('a 2-second 15 fps video becomes 30 pictures and a recording, all sent to t
 
   const run = startFrames({
     dataDir: path.join(dir, 'data'), input: ['-i', clip], log: quiet,
-    bodyos: { url: 'http://api', deviceId: 'mentra-live', fetchImpl, retryDelayMs: 1, parallel: 4 },
+    bodyos: { url: 'http://api', deviceId: 'glasses-1', fetchImpl, retryDelayMs: 1, parallel: 4 },
   });
   const result = await run.done;
   assert.equal(result.frames, 30);
@@ -99,7 +100,12 @@ test('a 2-second 15 fps video becomes 30 pictures and a recording, all sent to t
   assert.equal(new Set(sent.photo.map((p) => p.requestId)).size, 30);
   assert.equal(sent.video.length, 1);
   assert.equal(sent.video[0].type, 'video/mp4');
-  assert.deepEqual(sent.video[0].bytes, fs.readFileSync(path.join(run.store.dir, 'recording.mp4')));
+  // The recording and latest.jpg live where `npm run video` keeps them, so the viewer lists them.
+  assert.equal(run.videoDir, path.join(dir, 'data', 'video', path.basename(run.store.dir)));
+  assert.deepEqual(sent.video[0].bytes, fs.readFileSync(path.join(run.videoDir, 'recording.mp4')));
+  assert.ok(!fs.existsSync(path.join(run.store.dir, 'recording.mp4')));
+  const latest = fs.readFileSync(path.join(run.videoDir, 'latest.jpg'));
+  assert.deepEqual(latest.subarray(0, 3), Buffer.from([0xff, 0xd8, 0xff]));
   const log = events(run.store.dir);
   assert.equal(log.filter((e) => e.type === 'bodyos_stored').length, 31);
   assert.equal(log.at(-1).type, 'frames_end');
@@ -123,6 +129,38 @@ test('without ffmpeg the run ends with a clear message instead of hanging', asyn
   const result = await run.done;
   assert.equal(result.frames, 0);
   assert.ok(warnings.some((w) => /ffmpeg is not installed/.test(w)));
+  assert.ok(!fs.existsSync(run.videoDir), 'no empty video folder is left behind');
+});
+
+test('viewer live feed: 30 pictures a second reach it at most once a second, the newest one', async () => {
+  const store = new SessionStore(tmp(), 'stream');
+  const got = [];
+  const live = { event: (_id, e) => got.push(e) };
+  const stop = throttleToLive(store, live, 's', 200);
+  store.event('frames_start', {});
+  for (let i = 1; i <= 30; i += 1) {
+    store.event('photo', { n: i });
+    await new Promise((r) => setTimeout(r, 10)); // 300 ms in all
+  }
+  await new Promise((r) => setTimeout(r, 250));
+  store.event('video', { file: 'v' });
+  stop();
+  await store.close();
+  const photos = got.filter((e) => e.type === 'photo');
+  assert.ok(photos.length >= 2 && photos.length <= 4, `${photos.length} photo events`);
+  assert.equal(photos[0].n, 1);
+  assert.equal(photos.at(-1).n, 30, 'the newest picture is never held back for good');
+  assert.equal(got[0].type, 'frames_start');
+  assert.equal(got.at(-1).type, 'video');
+});
+
+test('a run started from the viewer shows up on its live page and ends there', { skip: !hasFfmpeg && 'ffmpeg not installed' }, async () => {
+  const calls = [];
+  const live = { sessionStarted: (i) => calls.push(['start', i.mode]), sessionEnded: (id, x) => calls.push(['end', x.photos]), event: () => {} };
+  const run = startFrames({ dataDir: tmp(), record: false, framesPerSec: 5, live, log: quiet,
+    input: ['-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=15', '-t', '1'] });
+  await run.done;
+  assert.deepEqual(calls, [['start', 'frames'], ['end', 5]]);
 });
 
 test('each run gives its recording its own API requestId', { skip: !hasFfmpeg && 'ffmpeg not installed' }, async () => {

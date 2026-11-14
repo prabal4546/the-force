@@ -13,6 +13,6 @@ contextBridge.exposeInMainWorld('glasses', {
     ipcRenderer.on('live', handler);
     return () => ipcRenderer.removeListener('live', handler);
   },
-  startRecorder: (mode, video) => ipcRenderer.invoke('recorder:start', { mode, video }),
+  startRecorder: (mode, video, frames) => ipcRenderer.invoke('recorder:start', { mode, video, frames }),
   stopRecorder: () => ipcRenderer.invoke('recorder:stop'),
 });

@@ -106,7 +106,7 @@ app.whenReady().then(() => {
     return dataDir;
   });
   ipcMain.handle('live:snapshot', () => ({ ...live, port, processes: processes.snapshot() }));
-  ipcMain.handle('recorder:start', (_e, opts) => processes.start({ mode: opts?.mode, video: opts?.video === true }));
+  ipcMain.handle('recorder:start', (_e, opts) => processes.start({ mode: opts?.mode, video: opts?.video === true, frames: opts?.frames === true }));
   ipcMain.handle('recorder:stop', () => processes.stop());
   connectLive({ port, onMessage: onLiveMessage, onState: onLiveState });
   ipcMain.handle('library:reveal', (_e, relPath) => {

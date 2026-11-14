@@ -23,7 +23,8 @@ const cleanId = (value) => String(value ?? '').replace(/[^A-Za-z0-9_-]/g, '');
 export function readBodyosConfig(env = process.env) {
   const url = String(env.BODYOS_API_URL ?? '').trim().replace(/\/+$/, '');
   if (url && !/^https?:\/\//.test(url)) throw new Error(`BODYOS_API_URL must start with http:// or https:// (got "${url}")`);
-  const deviceId = String(env.BODYOS_DEVICE_ID ?? 'mentra-live');
+  // glasses-1 is the id docs/api.md and docs/sdk-compatibility.md use for the glasses.
+  const deviceId = String(env.BODYOS_DEVICE_ID ?? 'glasses-1');
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(deviceId)) throw new Error('BODYOS_DEVICE_ID: letters, numbers, _ and - only, up to 128');
   const parallel = Number(env.BODYOS_PARALLEL ?? 4);
   if (!Number.isInteger(parallel) || parallel < 1 || parallel > 32) throw new Error(`BODYOS_PARALLEL must be a whole number from 1 to 32 (got "${env.BODYOS_PARALLEL}")`);
@@ -57,7 +58,7 @@ class ApiError extends Error {
 const FINAL = [401, 409, 413, 415, 422];
 
 /** A client for one glasses device in the API. */
-export function bodyosClient({ url, token = '', deviceId = 'mentra-live', fetchImpl = fetch, attempts = 3, retryDelayMs = 1000 }) {
+export function bodyosClient({ url, token = '', deviceId = 'glasses-1', fetchImpl = fetch, attempts = 3, retryDelayMs = 1000 }) {
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
   let registered = false;
 

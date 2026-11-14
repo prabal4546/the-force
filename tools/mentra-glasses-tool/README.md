@@ -14,7 +14,7 @@ carries the commands. `npm run receive` is that address, on this computer:
 1. Connect the glasses in **Mentra's example app** (Mentra's TestFlight build, on an Apple silicon Mac or an
    iPhone; see Mentra's "Update Mentra Live" page). Put the glasses on the **same Wi-Fi** as this computer.
 2. Here: `npm run receive` (or **Receive from glasses** in the viewer app). It prints a *Media upload URL*
-   such as `http://192.168.1.20:8787/upload`.
+   such as `http://192.168.1.20:8787/upload` (`/mentra/photo`, the path in TARGET.md, works too).
 3. In Mentra's app: **Camera** screen, turn on **Use cloud server**, paste that URL into **Media upload URL**,
    then take photos or record video. Each photo lands in `data/<time>_mentra-app/photos/`, each clip in
    `data/video/<time>_<id>/recording.mp4`, and both show up at once in the viewer.
@@ -41,10 +41,13 @@ BODYOS_API_URL=http://<Mac running the API>:8000 BODYOS_SESSION_TOKEN=<API token
 Then paste the printed RTMP address into Mentra's **Stream** screen (or, on the SDK route, set
 `VIDEO=1` and `RTMP_URL` to it). Each second it prints how many pictures were cut, how many the API
 kept, and how many are still waiting. Ctrl+C stops it: the last pictures are sent, then the
-recording.
+recording. In the viewer: tick **with live video** and **every frame as a picture**, then
+**Receive from glasses**.
 
-- Saved in `data/<time>_stream/`: `photos/` (every picture), `recording.mp4` (the stream itself, also
-  sent to the API), `events.jsonl` (each picture and its API artifact).
+- Pictures in `data/<time>_stream/photos/` with `events.jsonl` (each picture and its API artifact).
+  The recording and `latest.jpg` (newest picture, twice a second) in `data/video/<time>_stream/`,
+  where `npm run video` keeps its recordings, so the viewer lists and plays it like any other.
+  The recording is sent to the API when the stream stops.
 - `FRAMES_PER_SEC=0` (default) keeps every frame; `FRAMES_PER_SEC=5` keeps 5 per second.
   `FRAME_QUALITY` 2-31 (default 4) trades picture size for quality.
 - `BODYOS_PARALLEL` (default 4) uploads that many pictures at once. If the API is slower than the
@@ -71,14 +74,15 @@ Everything is kept in two places:
 | Video clips from the Wi-Fi receiver | `data/video/<time>_<id>/recording.mp4` | Yes, as they arrive |
 | Live-stream recordings (`npm run video`) | `data/video/<time>/recording.mp4` | Yes, when you stop it (Ctrl+C) |
 | Pictures cut from the live stream (`npm run frames`) | `data/<time>_stream/photos/` | Yes, every one as it is cut |
-| Its recording | `data/<time>_stream/recording.mp4` | Yes, when it stops |
+| Its recording | `data/video/<time>_stream/recording.mp4` | Yes, when it stops |
 | Frames from `npm run video` (one per second) | `data/video/<time>/frames/`, `latest.jpg` | No (use `npm run frames`) |
 | Events (head, button, battery, what was kept where) | `events.jsonl` in each folder | No |
 
 The API is the Mac runtime's device input API (`make api`, see `docs/api.md` on the API branch).
 The tool registers the glasses as `device_type: glasses`, then sends photos to
 `POST /v1/glasses/photos` and videos to `POST /v1/glasses/videos`
-(`?device_id=<BODYOS_DEVICE_ID>`, multipart file plus `requestId`). For each one, `events.jsonl` gets
+(`?device_id=<BODYOS_DEVICE_ID>`, default `glasses-1`, the id `docs/api.md` uses; multipart file plus
+`requestId`). For each one, `events.jsonl` gets
 a `bodyos_stored` line with `kind`, `artifactId` and `url`; `GET /v1/artifacts/<id>` returns the
 original bytes. **The video endpoint is on branch `mentra-api-video`** (from `codex/api`) until it is
 merged; against an API without it, clips are logged as `bodyos_failed` and stay in `data/`.
@@ -108,7 +112,7 @@ The rest of this page is the older route through the Mentra cloud (MentraOS app 
 
 | Part | Status |
 |---|---|
-| Saving events, photos, IMU samples; settings checks; photo/video logic; the live feed; the Wi-Fi receiver; sending photos and videos to the BodyOS API; cutting pictures from the live stream | Tested here (`npm test`, 43 tests) |
+| Saving events, photos, IMU samples; settings checks; photo/video logic; the live feed; the Wi-Fi receiver; sending photos and videos to the BodyOS API; cutting pictures from the live stream | Tested here (`npm test`, 46 tests; viewer `npm test`, 13 tests; both run in the repo's `make check`) |
 | Video receiver (`scripts/record-video.sh`) | Tested here with a fake RTMP push: it made `recording.mp4`, frame screenshots and `latest.jpg` |
 | `/imu` endpoint on the real MentraOS SDK server | Tested here: wrong token refused, good samples saved |
 | **Real glasses end to end** (app registration, the tunnel, photos, the stream) | **Not tested.** No glasses were available. The SDK calls were checked against the installed `@mentra/sdk` 2.1.29 type files, not run against a pair of glasses |
