@@ -12,7 +12,10 @@ class BandContractTests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.app = create_app(upload_dir=Path(directory.name), session_token="")
+        self.app = create_app(
+            upload_dir=Path(directory.name), session_token="",
+            command_db=Path(directory.name) / "commands.sqlite3",
+        )
         stack = ExitStack()
         self.addCleanup(stack.close)
         self.client = stack.enter_context(TestClient(self.app))

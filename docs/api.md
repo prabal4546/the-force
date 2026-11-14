@@ -176,6 +176,12 @@ device/event ID with the same payload returns the original response without a ne
 event. A conflicting payload returns **409**. Reuse the original event ID and
 timestamp on retry; create a new ID for a genuinely new gesture.
 
+## Durable voice command storage
+
+See [`commands.md`](commands.md) for input/output, history, and retry examples.
+`POST /v1/commands` and a `command` body on `/v1/band/events` share SQLite storage;
+their acceptance response adds `command_id`. Other band inputs remain transient.
+
 ## 3. Send a glasses photo
 
 Register a device such as `glasses-1` with `device_type: glasses` first.
@@ -243,9 +249,9 @@ saving a photo or accepting a gesture.
 
 `GET /healthz` returns `{"status": "ok"}` without requiring hardware or credentials.
 
-Run one API process/worker. Registration, deduplication indexes, and artifact lookup
+Run one API process/worker. Registration, non-command deduplication indexes, and artifact lookup
 metadata are in memory and reset on restart; clients must register again. Photo
 files remain on disk but old artifact URLs are not restored automatically. This
-is an intake API for integration, not durable event processing or a production
+is an intake API for integration, not an action executor or a production
 storage service. The BE never scans for another team's band or silently turns
 registration into a hardware connection attempt.

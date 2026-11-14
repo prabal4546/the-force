@@ -8,7 +8,7 @@ import hashlib
 import os
 from pathlib import Path
 import secrets
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 from uuid import uuid4
 import warnings
 
@@ -19,7 +19,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .band_contract import BandEvent
+from .band_contract import BandEvent, CommandInput
+from .command_store import CommandConflict, CommandRecord, CommandStorageError, CommandStore
 from .input_guard import DeviceInputGuard
 
 
@@ -61,6 +62,10 @@ class GestureStatus(BaseModel):
     received_at: datetime
 
 
+class CommandStatus(GestureStatus):
+    command_id: str
+
+
 class PhotoStatus(BaseModel):
     status: Literal["received"] = "received"
     request_id: str
@@ -95,6 +100,7 @@ def inspect_image(path: Path) -> tuple[str, int, int]:
 def create_app(
     *,
     upload_dir: Optional[Path] = None,
+    command_db: Optional[Path] = None,
     session_token: Optional[str] = None,
     max_upload_bytes: int = 10 * 1024 * 1024,
 ) -> FastAPI:
@@ -102,6 +108,7 @@ def create_app(
         raise ValueError("max_upload_bytes must be positive")
     storage = Path(upload_dir) if upload_dir is not None else Path(os.getenv("BODYOS_UPLOAD_DIR", ".data/photos"))
     token = os.getenv("BODYOS_SESSION_TOKEN", "") if session_token is None else session_token
+    commands = CommandStore(command_db if command_db is not None else Path(os.getenv("BODYOS_COMMAND_DB", ".data/commands.sqlite3")))
     application = FastAPI(
         title="BodyOS Device API",
         version="0.1.0",
@@ -113,6 +120,7 @@ def create_app(
     devices: dict[str, DeviceStatus] = {}
     gestures: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
     band_events: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
+    band_event_lock = asyncio.Lock()
     artifacts: dict[str, dict[str, Any]] = {}
     photo_requests: dict[tuple[str, str], str] = {}
     application.state.devices = devices
@@ -120,6 +128,14 @@ def create_app(
     application.state.band_events = band_events
     application.state.artifacts = artifacts
     bearer = HTTPBearer(auto_error=False)
+
+    @application.exception_handler(CommandStorageError)
+    async def command_storage_unavailable(request: Request, error: CommandStorageError) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": "Command storage is unavailable"})
+
+    @application.exception_handler(CommandConflict)
+    async def command_conflict(request: Request, error: CommandConflict) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(error)})
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -165,17 +181,75 @@ def create_app(
     async def device_status(device_id: str) -> DeviceStatus:
         return require_device(device_id)
 
-    @router.post("/band/events", status_code=202, response_model=GestureStatus)
+    def remember_band_event(key: tuple[str, str], payload: dict[str, Any], response: GestureStatus) -> None:
+        band_events[key] = {"payload": payload, "response": response}
+        if len(band_events) > 1000:
+            band_events.popitem(last=False)
+
+    async def accept_command(event: CommandInput, device_id: str, idempotency_key: Optional[str]) -> CommandStatus:
+        device = require_device(device_id, "band")
+        event_id = idempotency_key or uuid4().hex
+        key = (device_id, event_id)
+        payload = event.model_dump(mode="json")
+        previous = band_events.get(key)
+        if previous is not None and previous["payload"] != payload:
+            raise CommandConflict("Idempotency-Key was already used for a different band payload")
+        record = await asyncio.to_thread(commands.accept, device_id, event_id, event.text)
+        response = CommandStatus(
+            event_id=record.event_id, device_id=record.device_id,
+            command_id=record.command_id, received_at=record.received_at,
+        )
+        remember_band_event(key, payload, response)
+        device.last_seen_at = datetime.now(timezone.utc)
+        return response
+
+    @router.post("/commands", status_code=202, response_model=CommandStatus)
+    async def receive_command(
+        event: CommandInput,
+        device_id: str = Query(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
+        idempotency_key: Optional[str] = Header(
+            default=None, alias="Idempotency-Key", min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$",
+        ),
+    ) -> CommandStatus:
+        async with band_event_lock:
+            return await accept_command(event, device_id, idempotency_key)
+
+    @router.get("/commands", response_model=list[CommandRecord])
+    async def command_history(
+        device_id: Optional[str] = Query(default=None, min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
+        limit: int = Query(default=50, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+    ) -> list[CommandRecord]:
+        return await asyncio.to_thread(commands.list_commands, device_id, limit, offset)
+
+    @router.get("/commands/{command_id}", response_model=CommandRecord)
+    async def command_status(command_id: str) -> CommandRecord:
+        record = await asyncio.to_thread(commands.get, command_id)
+        if record is None:
+            raise HTTPException(404, "Command not found")
+        return record
+
+    @router.post("/band/events", status_code=202, response_model=Union[CommandStatus, GestureStatus])
     async def receive_band_event(
         event: BandEvent = Body(..., discriminator="type"),
         device_id: str = Query(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
         idempotency_key: Optional[str] = Header(
             default=None, alias="Idempotency-Key", min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$",
         ),
-    ) -> GestureStatus:
+    ) -> Union[CommandStatus, GestureStatus]:
+        async with band_event_lock:
+            return await buffer_band_event(event, device_id, idempotency_key)
+
+    async def buffer_band_event(
+        event: BandEvent, device_id: str, idempotency_key: Optional[str],
+    ) -> Union[CommandStatus, GestureStatus]:
+        if isinstance(event, CommandInput):
+            return await accept_command(event, device_id, idempotency_key)
         device = require_device(device_id, "band")
         event_id = idempotency_key or uuid4().hex
         key = (device_id, event_id)
+        if idempotency_key and await asyncio.to_thread(commands.find_event, device_id, event_id) is not None:
+            raise CommandConflict("Idempotency-Key was already used for a command payload")
         payload = event.model_dump(mode="json")
         previous = band_events.get(key)
         if previous is not None:
@@ -184,9 +258,7 @@ def create_app(
             device.last_seen_at = datetime.now(timezone.utc)
             return previous["response"]
         response = GestureStatus(event_id=event_id, device_id=device_id, received_at=datetime.now(timezone.utc))
-        band_events[key] = {"payload": payload, "response": response}
-        if len(band_events) > 1000:
-            band_events.popitem(last=False)
+        remember_band_event(key, payload, response)
         device.last_seen_at = response.received_at
         return response
 

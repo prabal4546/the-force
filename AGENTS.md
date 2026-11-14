@@ -12,6 +12,7 @@ verified Bluetooth connection. The existing iPhone/WebSocket flow is separate.
 ## Read first
 
 - `docs/api.md`: request/response contracts, errors, retries, and LAN setup.
+- `docs/commands.md`: durable voice command intake, queries, and retry behavior.
 - `docs/sdk-compatibility.md`: SDK fields, adapter responsibilities, and test limits.
 - `shared/protocol/band-input.schema.json`: normalized band input body.
 - The running `/openapi.json` and `/docs`: complete HTTP schemas.
@@ -46,6 +47,9 @@ automatically by the API. Never commit tokens, photos, or local credentials.
    means -1 for a left swipe or 1 for a right swipe, one event per swipe.
    The removed `adjust` event is rejected.
    A **202** `accepted` response means buffered input only.
+   For `command`, the raw transcript is committed to SQLite before acceptance and
+   the response adds `command_id`. `POST /v1/commands` is a dedicated equivalent;
+   query with `GET /v1/commands/{command_id}` or `GET /v1/commands`.
 4. Glasses: set the connected Mentra client's `requestPhoto` webhook URL to
    `/v1/glasses/photos?device_id=<registered-id>`. The uploader sends multipart
    `photo` and `requestId`; `authToken` supplies the Bearer header. A **201**
@@ -55,7 +59,9 @@ automatically by the API. Never commit tokens, photos, or local credentials.
 
 Generate a new optional `Idempotency-Key` per distinct band event; reuse it only
 for that event's retry. Consecutive swipes are distinct events even when they
-share a direction. Register devices again after server restart. Use one API worker.
+share a direction. Register devices again after server restart. Command records
+and their retry keys survive in `BODYOS_COMMAND_DB`; other event/artifact indexes
+do not. Use one API worker. Commands stay `received` until a future executor exists.
 
 ## Hardware boundaries
 
