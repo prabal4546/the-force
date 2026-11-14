@@ -22,7 +22,17 @@ The Vexo adapter must read `VEXO_BAND_NUMBER` from `.env` or the environment and
 connect only to that exact band. Do not scan for the first available band. The
 vendored reference kit lives at `vendor/vexo-open-kit`.
 
-The real window controller should use `NSWorkspace.frontmostApplication`,
-`AXUIElement`, and `NSScreen`. It needs macOS Accessibility permission. Retain
-the selected AX window at capture time so a focus change before THROW does not
-change which window moves.
+To use the real macOS window controller with the dashboard's Vexo input:
+
+```bash
+make mac-setup
+make mac-demo
+```
+
+The first GRAB prompts for macOS Accessibility permission. Grant the terminal or
+runner under **System Settings > Privacy & Security > Accessibility**, restart
+the runtime, and try again. The controller retains the selected AX window at
+GRAB time, so a focus change before THROW does not change which window moves.
+
+Keep the dashboard in the background and focus the window you want before the
+single-tap GRAB. The external monitor must use extended desktop, not mirroring.

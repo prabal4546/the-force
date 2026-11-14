@@ -16,14 +16,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Use keyboard gestures and an in-memory window controller",
     )
+    parser.add_argument(
+        "--real-windows",
+        action="store_true",
+        help="Use macOS Accessibility for windows while keeping simulated gestures",
+    )
     return parser
 
 
-async def run(*, simulate: bool) -> None:
+async def run(*, simulate: bool, real_windows: bool = False) -> None:
     config = RuntimeConfig.from_environment(simulate=simulate)
     if simulate:
         vexo = SimulatedVexoInput()
-        windows = SimulatedWindowController()
+        windows = MacOSWindowController() if real_windows else SimulatedWindowController()
     else:
         assert config.vexo_band_number is not None
         vexo = RealVexoInput(config.vexo_band_number)
@@ -41,7 +46,7 @@ async def run(*, simulate: bool) -> None:
 def main() -> None:
     args = build_parser().parse_args()
     try:
-        asyncio.run(run(simulate=args.simulate))
+        asyncio.run(run(simulate=args.simulate, real_windows=args.real_windows))
     except (KeyboardInterrupt, ValueError) as exc:
         print(f"Stopped: {exc}")
 

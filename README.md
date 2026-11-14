@@ -97,6 +97,25 @@ The event log in the iPhone shell shows every coordinator transition and
 hardware command. This gives all four owners one shared integration surface
 while the Mentra and DockKit adapters are replaced with real hardware.
 
+## Vexo to real Mac window
+
+Run these in separate terminals:
+
+```bash
+make mac-setup
+make mac-demo
+```
+
+```bash
+make band
+```
+
+Open `http://localhost:8001`, connect and calibrate Vexo, then connect the
+iPhone app to the Mac runtime. Focus the Mac window you want, select **Mac** on
+the phone and single-tap Vexo to GRAB. Select **External Display** on the phone
+and double-tap Vexo to THROW. The dashboard still records the original band
+events in the HTTP API when that API is running.
+
 The iOS shell contains manual target and gesture controls. Keep these controls
 working even after real hardware is connected; they are the integration and
 demo fallback.

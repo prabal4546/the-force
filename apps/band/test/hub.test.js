@@ -62,7 +62,7 @@ test('what the API would answer 422 to is caught before it is sent', () => {
   assert.equal(contractProblem({ type: 'command', text: 'x'.repeat(HUB.maxTextLength) }), null);
 });
 
-test('the schema file kept from the API repository lists the same five events', () => {
+test('the schema file kept from the API repository lists the same four events', () => {
   const schema = JSON.parse(readFileSync(new URL('../contract/band-input.schema.json', import.meta.url), 'utf8'));
   const types = schema.oneOf.map((entry) => entry.properties.type.const).sort();
   assert.deepEqual(types, ['command', 'select', 'step', 'toggle']);

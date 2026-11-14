@@ -40,13 +40,18 @@ class BodyOSServer:
         await socket.send(WireMessage.create("hello", role="mac-runtime").to_json())
         try:
             async for raw in socket:
-                response = await self._dispatch(raw)
+                response = await self._dispatch(raw, sender=socket)
                 if response is not None:
                     await socket.send(response.to_json())
         finally:
             self.clients.discard(socket)
 
-    async def _dispatch(self, raw: Union[str, bytes]) -> Optional[WireMessage]:
+    async def _dispatch(
+        self,
+        raw: Union[str, bytes],
+        *,
+        sender: Optional[ServerConnection] = None,
+    ) -> Optional[WireMessage]:
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
         request: Optional[WireMessage] = None
@@ -80,6 +85,16 @@ class BodyOSServer:
                 await self.vexo.set_led(color)
                 return None
 
+            if request.type == "gesture.detected":
+                gesture = payload.get("gesture")
+                confidence = payload.get("confidence")
+                if gesture not in ("grab", "throw"):
+                    raise ProtocolError("gesture.detected requires grab or throw")
+                if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+                    raise ProtocolError("gesture.detected requires confidence from 0 to 1")
+                await self._broadcast(request.to_json(), exclude=sender)
+                return None
+
             raise ProtocolError(f"Unsupported message type: {request.type}")
         except (ProtocolError, WindowControlError) as exc:
             if request is not None:
@@ -98,11 +113,21 @@ class BodyOSServer:
                 gesture=gesture.name,
                 confidence=gesture.confidence,
             ).to_json()
-            stale: list[ServerConnection] = []
-            for client in self.clients:
-                try:
-                    await client.send(message)
-                except Exception:
-                    stale.append(client)
-            for client in stale:
-                self.clients.discard(client)
+            await self._broadcast(message)
+
+    async def _broadcast(
+        self,
+        message: str,
+        *,
+        exclude: Optional[ServerConnection] = None,
+    ) -> None:
+        stale: list[ServerConnection] = []
+        for client in self.clients:
+            if client is exclude:
+                continue
+            try:
+                await client.send(message)
+            except Exception:
+                stale.append(client)
+        for client in stale:
+            self.clients.discard(client)

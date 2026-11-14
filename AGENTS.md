@@ -7,7 +7,8 @@ Discussion with the user may use Chinese or English.
 
 The Python HTTP API implements local device registration and input reception.
 Do not describe accepted input as an executed action or registered hardware as a
-verified Bluetooth connection. The existing iPhone/WebSocket flow is separate.
+verified Bluetooth connection. The band dashboard separately maps single tap to
+GRAB and double-tap to THROW over the existing WebSocket coordinator path.
 
 ## Read first
 
@@ -17,9 +18,9 @@ verified Bluetooth connection. The existing iPhone/WebSocket flow is separate.
 - The running `/openapi.json` and `/docs`: complete HTTP schemas.
 
 `shared/protocol/events.schema.json` describes a different WebSocket envelope.
-Do not send the new band event body directly to that WebSocket or assume an
-automatic bridge exists. `TARGET.md` describes the fuller iPhone-coordinator
-profile; do not silently map `select` to `grab` or `step` to `throw`.
+Do not send the HTTP band-event body directly to it. The explicit demo mapping
+is implemented in `apps/band/coordinator-link.js`: `toggle` becomes GRAB and
+`select` becomes THROW; `step` remains unmapped.
 
 ## Start and verify
 
@@ -73,11 +74,9 @@ share a direction. Register devices again after server restart. Use one API work
 
 ## Change discipline
 
-Work only on `codex/api`. After a completed change passes verification, commit and
-push it to `origin/codex/api` without requesting another approval. Fetch before
-pushing and integrate relevant remote updates into this branch. Do not modify,
-check out, or push any other branch. Never force-push or merge this branch into
-`main` without a new explicit request from the user.
+Work on the feature branch requested by the user. Fetch before pushing, preserve
+other owners' changes, and never force-push or merge into `main` without an
+explicit request.
 
 Keep hardware SDK dependencies out of the intake implementation; SDK imports in
 contract tests are fixtures only. Update contracts and consumers together.

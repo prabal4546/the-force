@@ -25,6 +25,8 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(os.path.dirname(HERE))
+VEXO_KIT = os.path.join(REPO_ROOT, 'vendor', 'vexo-open-kit')
 TRACES = os.path.join(HERE, 'traces')
 MAX_BYTES = 30 * 1024 * 1024
 MAX_POST = 2 * 1024 * 1024
@@ -37,6 +39,18 @@ MAX_HUB_POST = 64 * 1024
 
 
 class Handler(SimpleHTTPRequestHandler):
+    def translate_path(self, path):
+        """Serve the checked-in Vexo kit at /vexo-open-kit without exposing the repo."""
+        prefix = '/vexo-open-kit/'
+        if path.startswith(prefix):
+            relative = path[len(prefix):].split('?', 1)[0].split('#', 1)[0]
+            candidate = os.path.realpath(os.path.join(VEXO_KIT, relative))
+            kit_root = os.path.realpath(VEXO_KIT) + os.sep
+            if candidate == os.path.realpath(VEXO_KIT) or candidate.startswith(kit_root):
+                return candidate
+            return os.path.join(VEXO_KIT, '__invalid_path__')
+        return super().translate_path(path)
+
     def hub(self, body=None):
         """Pass one request on to the device API and hand its answer back unchanged."""
         if not HUB_ROUTES.match(self.path):

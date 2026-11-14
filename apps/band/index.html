@@ -222,9 +222,13 @@
   <section class="card">
     <div class="row spread" style="margin-bottom: 12px">
       <h2 style="margin: 0">Outgoing messages</h2>
-      <span id="hub" class="pill">Device API: not tried yet</span>
+      <div class="row">
+        <span id="coordinator" class="pill">Coordinator: connecting</span>
+        <span id="hub" class="pill">Device API: not tried yet</span>
+      </div>
     </div>
     <div id="log"></div>
+    <p id="coordinatorText" class="muted" style="margin: 10px 0 0"></p>
     <p id="hubText" class="muted" style="margin: 10px 0 0"></p>
   </section>
 
@@ -286,12 +290,13 @@
 
 <script>  // a double-clicked file cannot load the library: say so on the page
   if (location.protocol === 'file:') document.getElementById('status').textContent =
-    'Opened by double-click. In ~/vexo-remote run:  python3 -m http.server 8000 --bind 127.0.0.1  then open http://localhost:8000/index.html';
+    'Opened by double-click. From the-force run: make band, then open http://localhost:8001/index.html';
 </script>
 <script type="module">
   import { Band, SimTransport } from './vexo-open-kit/js/src/index.js';
   import * as remote from './band-module.js';
   import { bandDeviceId, createHubLink, hubPost } from './hub.js';
+  import { createCoordinatorLink } from './coordinator-link.js';
 
   const BAND = 28;                                   // our team's band number: Vexo-HACK-28
   const SIM = location.search.includes('sim');       // index.html?sim = pretend band, no hardware
@@ -649,6 +654,17 @@
   setInterval(() => {                                // the API was not there: look again while the band is on
     if (bandOn && hub.state.status !== 'ready') hub.register('connected');
   }, 5000);
+
+  // ---- Product coordinator: tap = GRAB, double-tap = THROW ----
+  const coordinator = createCoordinatorLink({ onChange: showCoordinator });
+  function showCoordinator(state) {
+    const kind = state.status === 'ready' ? 'good' : state.status === 'unreachable' ? 'warn' : '';
+    const text = { idle: 'idle', connecting: 'connecting', ready: 'connected', unreachable: 'not reachable' }[state.status];
+    pill($('coordinator'), 'Coordinator: ' + text, kind);
+    $('coordinatorText').textContent = state.sent + ' actions sent, ' + state.dropped + ' not delivered.'
+      + (state.problem ? '  ' + state.problem : '  Tap = GRAB, double-tap = THROW.');
+  }
+  remote.onEvent((message) => coordinator.send(message));
 
   // ---- Trace: what the band did and what the detector made of it, kept by serve.py for looking at afterwards ----
   const trace = [];                                  // motion since the last post: [t, ax, ay, az, gx, gy, gz]

@@ -9,12 +9,8 @@ Two small things that talk to our Vexo band (`Vexo-HACK-28`) over Bluetooth:
 
 You need Python 3.9 or newer, and Chrome or Edge for the dashboard.
 
-1. Clone this branch, then clone the Vexo kit inside it. Both files expect the kit in a
-   folder named `vexo-open-kit` next to them.
-
-       git clone -b band-dashboard https://github.com/wongywrongy/group-vexo-open-kit.git vexo-remote
-       cd vexo-remote
-       git clone https://github.com/wongywrongy/group-vexo-open-kit.git vexo-open-kit
+1. Clone `the-force`. The checked-in Vexo reference kit under
+   `vendor/vexo-open-kit` is served automatically by the dashboard server.
 
 2. Install the one Python dependency (only needed for `band_check.py`).
 
@@ -35,11 +31,16 @@ The first real run asks for Bluetooth permission for your terminal. Allow it and
 
 The page cannot be opened by double-click: it has to be served.
 
-    python3 serve.py
+    make band
 
 Then open <http://localhost:8001/index.html> in Chrome or Edge, press **Connect** and pick
 `Vexo-HACK-28` in the list. To try it without the band, open
 <http://localhost:8001/index.html?sim> instead.
+
+When the Mac runtime is running, the dashboard also connects to
+`ws://127.0.0.1:8765`: a single tap sends **GRAB** and a double-tap sends **THROW**
+to the iPhone coordinator. Left/right wrist turns remain `step` events for target
+navigation and are recorded by the HTTP API, but are not mapped to product actions yet.
 
 `serve.py` is a plain file server that also keeps the band's motion, and what the gesture
 detector made of it, in `traces/trace.jsonl` (motion only, on this computer, not in git), so a
