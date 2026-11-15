@@ -5,6 +5,7 @@ from typing import Optional, Union
 
 from websockets.asyncio.server import ServerConnection, serve
 
+from .govee_controller import GoveeControlError, GoveeControlling
 from .keyboard_controller import KeyboardControlError, KeyboardControlling
 from .protocol import ProtocolError, WireMessage, reply
 from .vexo_adapter import VexoInput
@@ -20,13 +21,16 @@ class BodyOSServer:
         host: str,
         port: int,
         keyboard: Optional[KeyboardControlling] = None,
+        govee: Optional[GoveeControlling] = None,
     ) -> None:
         self.window_controller = window_controller
         self.vexo = vexo
         self.host = host
         self.port = port
         self.keyboard = keyboard
+        self.govee = govee
         self.clients: set[ServerConnection] = set()
+        self.active_target: Optional[str] = None
 
     async def run(self) -> None:
         async with serve(self._handle_client, self.host, self.port):
@@ -41,6 +45,14 @@ class BodyOSServer:
     async def _handle_client(self, socket: ServerConnection) -> None:
         self.clients.add(socket)
         await socket.send(WireMessage.create("hello", role="mac-runtime").to_json())
+        if self.active_target is not None:
+            await socket.send(
+                WireMessage.create(
+                    "target.detected",
+                    target=self.active_target,
+                    confidence=1.0,
+                ).to_json()
+            )
         try:
             async for raw in socket:
                 response = await self._dispatch(raw, sender=socket)
@@ -92,6 +104,16 @@ class BodyOSServer:
                 key = payload.get("key")
                 if key not in ("left", "right"):
                     raise ProtocolError("mac.key requires left or right")
+                if self.govee is not None:
+                    delta = 10 if key == "right" else -10
+                    brightness = await self.govee.adjust_brightness(delta)
+                    return reply(
+                        request,
+                        "govee.controlled",
+                        action="brightness",
+                        value=brightness,
+                        success=True,
+                    )
                 if self.keyboard is None:
                     raise KeyboardControlError("Mac keyboard control is not enabled")
                 self.keyboard.press_key(key)
@@ -104,11 +126,48 @@ class BodyOSServer:
                     raise ProtocolError("gesture.detected requires grab or throw")
                 if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
                     raise ProtocolError("gesture.detected requires confidence from 0 to 1")
+                if self.govee is not None:
+                    if gesture == "grab":
+                        enabled = await self.govee.toggle()
+                        return reply(
+                            request,
+                            "govee.controlled",
+                            action="power",
+                            value=enabled,
+                            success=True,
+                        )
+                    color = await self.govee.cycle_color()
+                    return reply(
+                        request,
+                        "govee.controlled",
+                        action="color",
+                        value=list(color),
+                        success=True,
+                    )
                 await self._broadcast(request.to_json(), exclude=sender)
                 return None
 
+            if request.type == "target.detected":
+                target = payload.get("target")
+                if target not in (
+                    "mac",
+                    "externalDisplay",
+                    "gimbal",
+                    "personRed",
+                    "personBlue",
+                ):
+                    raise ProtocolError("target.detected requires a known target")
+                self.active_target = target
+                await self._broadcast(request.to_json(), exclude=sender)
+                return reply(request, "target.detected", target=target, locked=True)
+
             raise ProtocolError(f"Unsupported message type: {request.type}")
-        except (KeyboardControlError, ProtocolError, WindowControlError) as exc:
+        except (
+            GoveeControlError,
+            KeyboardControlError,
+            ProtocolError,
+            WindowControlError,
+        ) as exc:
             if request is not None:
                 return reply(
                     request,

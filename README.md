@@ -120,6 +120,14 @@ If the selected app exposes a non-movable window, use the presentation fallback:
 focus Keynote, PowerPoint, or Google Slides and use left/right Vexo wrist steps
 to send real macOS arrow keys through the same coordinator.
 
+## Vexo to Govee lamp
+
+For a compact physical-device demo, the Mac runtime can route the same Vexo
+events to a Govee Table Lamp 2S (H8022) over Govee's local LAN API. Enable LAN
+Control for the lamp in the Govee app, then run `make govee-demo`. Single tap
+toggles power, double tap cycles color, and left/right wrist steps adjust
+brightness. See `services/mac-runtime/README.md` for setup details.
+
 The iOS shell contains manual target and gesture controls. Keep these controls
 working even after real hardware is connected; they are the integration and
 demo fallback.
@@ -134,6 +142,7 @@ docs/                      Architecture, milestones, and runbook
 vendor/vexo-open-kit/      Unmodified Vexo reference kit
 scripts/                   Repository checks
 tools/mentra-glasses-tool/ Mentra Live capture on the Mac: photos, video, every video frame -> data/ and the device API
+tools/mentra-miniapp/       Current Mentra App miniapp for real glasses photo capture over the phone's BLE relay
 ```
 
 ## Definition of done

@@ -10,7 +10,7 @@ PYTHON ?= python3
 MAC_ROOT := services/mac-runtime
 VENV_PYTHON := .venv/bin/python
 
-.PHONY: check mac-setup mac-sim mac-demo band api
+.PHONY: check mac-setup mac-sim mac-demo govee-demo band api
 
 check:
 	$(PYTHON) scripts/check_repo.py
@@ -27,6 +27,9 @@ mac-sim:
 
 mac-demo:
 	PYTHONPATH=$(MAC_ROOT)/src $(VENV_PYTHON) -m bodyos_mac.main --simulate --real-windows
+
+govee-demo:
+	GOVEE_LAN=1 PYTHONPATH=$(MAC_ROOT)/src $(VENV_PYTHON) -m bodyos_mac.main --simulate
 
 band:
 	cd apps/band && $(PYTHON) serve.py

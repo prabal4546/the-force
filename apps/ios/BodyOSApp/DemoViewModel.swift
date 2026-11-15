@@ -10,7 +10,7 @@ final class DemoViewModel: ObservableObject {
     @Published private(set) var eventLog: [String] = []
     @Published private(set) var lastError: String?
 
-    let mentraStatus = "Mock"
+    let mentraStatus = "Miniapp lock"
     let gimbalStatus = "Mock"
 
     private let macBridge: any MacBridge
@@ -130,6 +130,17 @@ final class DemoViewModel: ObservableObject {
                 .gesture(gesture),
                 note: "Vexo: \(rawGesture) (\(Int(confidence * 100))%)"
             )
+
+        case "target.detected":
+            guard
+                let rawTarget = message.target,
+                let target = TargetID(rawValue: rawTarget)
+            else {
+                report("Mentra sent an invalid target")
+                return
+            }
+            selectedTarget = target
+            append("Mentra locked: \(target.label)")
 
         case "window.captured":
             guard let token = message.token, !token.isEmpty else {

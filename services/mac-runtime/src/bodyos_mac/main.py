@@ -4,6 +4,7 @@ import argparse
 import asyncio
 
 from .config import RuntimeConfig
+from .govee_controller import GoveeLanController
 from .keyboard_controller import MacOSKeyboardController, SimulatedKeyboardController
 from .server import BodyOSServer
 from .vexo_adapter import RealVexoInput, SimulatedVexoInput
@@ -43,6 +44,9 @@ async def run(*, simulate: bool, real_windows: bool = False) -> None:
         host=config.host,
         port=config.port,
         keyboard=keyboard,
+        govee=GoveeLanController(config.govee_device_ip)
+        if config.govee_lan_enabled
+        else None,
     )
     await server.run()
 

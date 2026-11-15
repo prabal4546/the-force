@@ -41,3 +41,20 @@ be movable.
 
 Keep the dashboard in the background and focus the window you want before the
 single-tap GRAB. The external monitor must use extended desktop, not mirroring.
+
+## Vexo to Govee Table Lamp 2S
+
+The Govee Table Lamp 2S (H8022) exposes Govee's local UDP LAN API. Add the lamp
+in the Govee app, connect it to the same private network as the Mac, and enable
+**LAN Control** in the lamp's device settings. Then run:
+
+```bash
+make govee-demo
+```
+
+The runtime discovers the H8022 automatically. If multicast discovery is
+blocked, set `GOVEE_DEVICE_IP` to the lamp's LAN address before starting.
+
+With the Vexo dashboard connected, a single tap toggles the lamp, a double tap
+cycles colors, and left/right wrist steps change brightness by 10 percent. The
+commands stay on the LAN; no Govee cloud API key is used.

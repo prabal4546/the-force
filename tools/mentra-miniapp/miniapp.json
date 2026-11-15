@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/@mentra/miniapp-cli/schema/miniapp.schema.json",
+  "packageName": "com.theforce.target_capture",
+  "version": "0.1.0",
+  "name": "The Force Target Capture",
+  "description": "Capture the wearer's view from Mentra glasses for The Force target-lock demo.",
+  "port": 3100,
+  "type": "standard",
+  "sdkVersion": "3.4.0",
+  "entry": {
+    "background": "background/index.js",
+    "ui": "ui/index.html"
+  },
+  "permissions": [
+    {
+      "type": "CAMERA",
+      "description": "Capture a photo when the wearer requests a target lock."
+    }
+  ],
+  "hardwareRequirements": [
+    {
+      "type": "CAMERA",
+      "level": "REQUIRED",
+      "description": "Captures the wearer's view for target selection."
+    },
+    {
+      "type": "BUTTON",
+      "level": "OPTIONAL",
+      "description": "Lets the wearer trigger target capture from the glasses."
+    }
+  ]
+}

@@ -15,3 +15,6 @@ apps/ios/BodyOSApp/Info.plist
 services/mac-runtime/build/
 services/mac-runtime/src/*.egg-info/
 vendor/vexo-open-kit/.git/
+tools/mentra-miniapp/node_modules/
+tools/mentra-miniapp/dist/
+tools/mentra-miniapp/build/
