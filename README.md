@@ -125,6 +125,24 @@ If the selected app exposes a non-movable window, use the presentation fallback:
 focus Keynote, PowerPoint, or Google Slides and use left/right Vexo wrist steps
 to send real macOS arrow keys through the same coordinator.
 
+## Mentra target lock
+
+`make mentra-bridge` opens a Mac app that connects to Mentra Live directly over the
+Mentra Bluetooth SDK (no Mentra App, no phone, no Wi-Fi). Look at a marker from
+`docs/mentra-markers/` and press the glasses button, or tick **Auto-lock**: the photo
+comes over Bluetooth, the QR marker is read on the Mac, and `target.detected` goes to
+the Mac runtime and on to the iPhone in about 3 seconds. With `make api` running, a
+spoken band command also takes a fresh glasses photo through the bridge for the agent. See
+[`tools/mentra-bridge/README.md`](tools/mentra-bridge/README.md).
+
+## Vexo to Govee lamp
+
+For a compact physical-device demo, the Mac runtime can route the same Vexo
+events to a Govee Table Lamp 2S (H8022) over Govee's local LAN API. Enable LAN
+Control for the lamp in the Govee app, then run `make govee-demo`. Single tap
+toggles power, double tap cycles color, and left/right wrist steps adjust
+brightness. See `services/mac-runtime/README.md` for setup details.
+
 The iOS shell contains manual target and gesture controls. Keep these controls
 working even after real hardware is connected; they are the integration and
 demo fallback.
@@ -138,6 +156,9 @@ shared/protocol/           Versioned JSON message contract
 docs/                      Architecture, milestones, and runbook
 vendor/vexo-open-kit/      Unmodified Vexo reference kit
 scripts/                   Repository checks
+tools/mentra-glasses-tool/ Mentra Live capture on the Mac: photos, video, every video frame -> data/ and the device API
+tools/mentra-bridge/        Mentra Live target lock on the Mac over the Bluetooth SDK only: photo -> QR marker -> target.detected (about 3 s)
+tools/mentra-miniapp/       Fallback: Mentra App miniapp, photo through the phone's BLE relay (about 20 s)
 ```
 
 ## Definition of done

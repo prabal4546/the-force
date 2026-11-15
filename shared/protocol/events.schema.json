@@ -21,6 +21,7 @@
         "window.moved",
         "mac.key",
         "mac.key.pressed",
+        "govee.controlled",
         "vexo.led",
         "tracking.state",
         "error"

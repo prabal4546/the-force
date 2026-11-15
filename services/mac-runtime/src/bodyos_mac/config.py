@@ -11,6 +11,8 @@ class RuntimeConfig:
     port: int = 8765
     session_token: str = ""
     vexo_band_number: Optional[int] = None
+    govee_lan_enabled: bool = False
+    govee_device_ip: Optional[str] = None
 
     @classmethod
     def from_environment(cls, *, simulate: bool) -> "RuntimeConfig":
@@ -30,4 +32,7 @@ class RuntimeConfig:
             port=int(os.getenv("BODYOS_WS_PORT", "8765")),
             session_token=os.getenv("BODYOS_SESSION_TOKEN", ""),
             vexo_band_number=band_number,
+            govee_lan_enabled=os.getenv("GOVEE_LAN", "").strip().lower()
+            in ("1", "true", "yes", "on"),
+            govee_device_ip=os.getenv("GOVEE_DEVICE_IP", "").strip() or None,
         )
