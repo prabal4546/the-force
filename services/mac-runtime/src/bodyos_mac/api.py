@@ -8,21 +8,18 @@ import hashlib
 import os
 from pathlib import Path
 import secrets
-from typing import Any, Literal, Mapping, Optional
+from typing import Any, Literal, Optional
 from uuid import uuid4
 import warnings
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .agent import Agent, GeminiAgent, SimulatedAgent
-from .agent_dispatcher import AgentDispatcher
-from .agent_memory import AgentMemory, AgentMemoryError
-from .band_contract import BandEvent, CommandInput
+from .band_contract import BandEvent
 from .input_guard import DeviceInputGuard
 
 
@@ -64,30 +61,6 @@ class GestureStatus(BaseModel):
     received_at: datetime
 
 
-class AgentTurnStatus(BaseModel):
-    """The brain's outcome for a dispatched band ``command``.
-
-    ``status`` starts as ``executing`` the moment the command is accepted, then
-    settles to ``completed`` / ``failed`` once the turn resolves. ``tool`` is the
-    single action the brain chose (answer / remember / recall).
-    """
-
-    status: Literal["executing", "completed", "failed"]
-    event_id: str
-    device_id: str
-    command: str
-    tool: Optional[Literal["answer", "remember", "recall"]] = None
-    understanding: Optional[str] = None
-    answer: Optional[str] = None
-    image_artifact_id: Optional[str] = None
-    detail: Optional[str] = None
-
-
-class AgentMemoryView(BaseModel):
-    facts: list[str]
-    recent_turns: list[dict[str, Any]]
-
-
 class PhotoStatus(BaseModel):
     status: Literal["received"] = "received"
     request_id: str
@@ -119,42 +92,14 @@ def inspect_image(path: Path) -> tuple[str, int, int]:
         raise HTTPException(415, "The upload is not a valid JPEG or PNG image") from None
 
 
-def build_agent(
-    *, simulate: bool, env: Optional[Mapping[str, str]] = None,
-    env_file: Optional[Path] = None,
-) -> Agent:
-    if simulate:
-        return SimulatedAgent()
-    environment = os.environ if env is None else env
-    path = env_file if env_file is not None else Path(__file__).resolve().parents[2] / ".env"
-    local_settings: dict[str, str] = {}
-    if path.is_file():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            name, separator, value = line.partition("=")
-            name = name.strip()
-            if separator and name in ("GEMINI_API_KEY", "GEMINI_MODEL"):
-                local_settings[name] = value.strip().strip('"').strip("'")
-    key = environment.get("GEMINI_API_KEY", local_settings.get("GEMINI_API_KEY", "")).strip()
-    if not key:
-        raise ValueError("GEMINI_API_KEY is missing; set it in the environment or services/mac-runtime/.env, or run with --simulate")
-    model = environment.get("GEMINI_MODEL", local_settings.get("GEMINI_MODEL"))
-    return GeminiAgent(api_key=key, model=model)
-
-
 def create_app(
     *,
     upload_dir: Optional[Path] = None,
     session_token: Optional[str] = None,
     max_upload_bytes: int = 10 * 1024 * 1024,
-    agent: Optional[Agent] = None,
-    memory_db: Optional[Path] = None,
 ) -> FastAPI:
     if max_upload_bytes <= 0:
         raise ValueError("max_upload_bytes must be positive")
-    if agent is None:
-        agent = SimulatedAgent()
-    agent_dispatcher = AgentDispatcher(agent)
-    memory = AgentMemory(memory_db if memory_db is not None else Path(os.getenv("BODYOS_AGENT_MEMORY_DB", ".data/agent_memory.sqlite3")))
     storage = Path(upload_dir) if upload_dir is not None else Path(os.getenv("BODYOS_UPLOAD_DIR", ".data/photos"))
     token = os.getenv("BODYOS_SESSION_TOKEN", "") if session_token is None else session_token
     application = FastAPI(
@@ -170,18 +115,11 @@ def create_app(
     band_events: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
     artifacts: dict[str, dict[str, Any]] = {}
     photo_requests: dict[tuple[str, str], str] = {}
-    agent_turns: OrderedDict[tuple[str, str], AgentTurnStatus] = OrderedDict()
     application.state.devices = devices
     application.state.gestures = gestures
     application.state.band_events = band_events
     application.state.artifacts = artifacts
-    application.state.agent_turns = agent_turns
-    application.state.memory = memory
     bearer = HTTPBearer(auto_error=False)
-
-    @application.exception_handler(AgentMemoryError)
-    async def agent_memory_unavailable(request: Request, error: AgentMemoryError) -> JSONResponse:
-        return JSONResponse(status_code=503, content={"detail": "Agent memory is unavailable"})
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -227,78 +165,8 @@ def create_app(
     async def device_status(device_id: str) -> DeviceStatus:
         return require_device(device_id)
 
-    def latest_glasses_artifact() -> Optional[dict[str, Any]]:
-        # Most recent glasses photo, by insertion order. Only glasses uploads
-        # land in ``artifacts``; in this single-user demo the band and glasses
-        # are separate device IDs on one body, so the newest photo is the band's
-        # current view. Returns None when nothing was captured.
-        for artifact in reversed(list(artifacts.values())):
-            return artifact
-        return None
-
-    def record_agent_turn(key: tuple[str, str], status: AgentTurnStatus) -> None:
-        agent_turns[key] = status
-        if len(agent_turns) > 1000:
-            agent_turns.popitem(last=False)
-
-    async def run_agent_turn(
-        device_id: str, event_id: str, command_text: str,
-        image_artifact_id: Optional[str], image_bytes: Optional[bytes],
-        image_mime: Optional[str],
-    ) -> None:
-        context = await asyncio.to_thread(memory.build_context, device_id)
-        turn = await agent_dispatcher.run_turn(
-            device_id, event_id, command_text, image_bytes, image_mime, context,
-        )
-        record_agent_turn(
-            (device_id, event_id),
-            AgentTurnStatus(
-                status=turn.status, event_id=event_id, device_id=device_id,
-                command=command_text, tool=turn.tool,
-                understanding=turn.understanding, answer=turn.answer,
-                image_artifact_id=image_artifact_id, detail=turn.detail,
-            ),
-        )
-        if turn.status == "completed":
-            await asyncio.to_thread(
-                memory.append_turn, device_id, image_artifact_id,
-                turn.understanding, command_text, turn.tool, turn.answer,
-            )
-            if turn.tool == "remember":
-                await asyncio.to_thread(memory.remember_fact, device_id, command_text)
-
-    def schedule_agent_turn(
-        background: BackgroundTasks, device_id: str, event_id: str, command_text: str,
-    ) -> None:
-        # Mark the turn in-flight before the response returns, then run it off
-        # the event loop. Only reached for a FRESHLY accepted command, so a
-        # retried delivery never runs the brain (and never remembers) twice.
-        artifact = latest_glasses_artifact()
-        image_artifact_id: Optional[str] = None
-        image_bytes: Optional[bytes] = None
-        image_mime: Optional[str] = None
-        if artifact is not None:
-            metadata = artifact["metadata"]
-            image_artifact_id = metadata.artifact_id
-            image_mime = metadata.content_type
-            path = artifact["path"]
-            if path.is_file():
-                image_bytes = path.read_bytes()
-        record_agent_turn(
-            (device_id, event_id),
-            AgentTurnStatus(
-                status="executing", event_id=event_id, device_id=device_id,
-                command=command_text, image_artifact_id=image_artifact_id,
-            ),
-        )
-        background.add_task(
-            run_agent_turn, device_id, event_id, command_text,
-            image_artifact_id, image_bytes, image_mime,
-        )
-
     @router.post("/band/events", status_code=202, response_model=GestureStatus)
     async def receive_band_event(
-        background: BackgroundTasks,
         event: BandEvent = Body(..., discriminator="type"),
         device_id: str = Query(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
         idempotency_key: Optional[str] = Header(
@@ -320,33 +188,7 @@ def create_app(
         if len(band_events) > 1000:
             band_events.popitem(last=False)
         device.last_seen_at = response.received_at
-        # The brain runs on a freshly accepted spoken command: it reads the
-        # latest glasses photo + memory and answers / remembers / recalls.
-        # step/toggle/select stay on the window/presentation path.
-        if isinstance(event, CommandInput):
-            schedule_agent_turn(background, device_id, event_id, event.text)
         return response
-
-    @router.get("/agent/turns/{event_id}", response_model=AgentTurnStatus)
-    async def agent_turn_result(
-        event_id: str,
-        device_id: str = Query(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
-    ) -> AgentTurnStatus:
-        status = agent_turns.get((device_id, event_id))
-        if status is None:
-            raise HTTPException(404, "No agent turn was dispatched for this event")
-        return status
-
-    @router.get("/agent/memory", response_model=AgentMemoryView)
-    async def agent_memory_view(
-        device_id: str = Query(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$"),
-    ) -> AgentMemoryView:
-        facts = await asyncio.to_thread(memory.list_facts, device_id)
-        turns = await asyncio.to_thread(memory.list_turns, device_id)
-        return AgentMemoryView(
-            facts=[fact.fact for fact in facts],
-            recent_turns=[turn.model_dump(mode="json") for turn in turns],
-        )
 
     @router.post("/gestures", status_code=202, response_model=GestureStatus)
     async def receive_gesture(event: GestureInput) -> GestureStatus:
@@ -437,18 +279,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="BodyOS device registration and input API")
     parser.add_argument("--host", default=os.getenv("BODYOS_API_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("BODYOS_API_PORT", "8000")))
-    parser.add_argument(
-        "--simulate",
-        action="store_true",
-        help="Force the offline SimulatedAgent brain even when GEMINI_API_KEY is set",
-    )
     arguments = parser.parse_args()
-    try:
-        agent = build_agent(simulate=arguments.simulate)
-    except ValueError as error:
-        parser.error(str(error))
-    application = create_app(agent=agent)
-    uvicorn.run(application, host=arguments.host, port=arguments.port)
+    uvicorn.run("bodyos_mac.api:app", host=arguments.host, port=arguments.port)
 
 
 if __name__ == "__main__":

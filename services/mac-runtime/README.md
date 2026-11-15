@@ -16,17 +16,6 @@ make mac-sim
 The simulated runtime hosts a WebSocket on `ws://0.0.0.0:8765` and accepts
 `g`/`t` in the terminal as GRAB/THROW events.
 
-The HTTP device API is separate:
-
-```bash
-make api PYTHON=.venv/bin/python
-```
-
-The API reads `GEMINI_API_KEY` and optional `GEMINI_MODEL` from this directory's
-`.env` file, with exported values taking priority. Band voice `command` turns
-use Gemini and populate the Memory panel. Startup fails without a key. Pass
-`--simulate` only when an offline brain is desired.
-
 ## Real-hardware work
 
 The Vexo adapter must read `VEXO_BAND_NUMBER` from `.env` or the environment and

@@ -38,52 +38,10 @@ export const CONFIG = {
   turnEndMs: 80,            // ... for this long ends it (so does turning back the other way)
   turnOutDegrees: 45,       // a turn must go this far outward (the easy way, see wearingArm) ...
   turnInDegrees: 40,        // ... or this far inward
-  turnMinDps: 150,          // and peak this fast: slower is moving the wrist back, not a gesture. It was 250
-                            //   while a quick return had to be told from a step by its speed alone; now the
-                            //   return is known by where the wrist is, and 250 threw out unhurried real turns
-  turnArmShare: 0.6,        // the arm itself may turn at most this share of what the wrist turned.
+  turnMinDps: 250,          // and peak this fast: slower is moving the wrist back, not a gesture
+  turnArmShare: 0.5,        // the arm itself may turn at most this share of what the wrist turned.
                             //   More is the arm moving around, not a turn of the wrist
-  // The wrist's axis is found in calibration, but a band shifts on the wrist, and then every
-  // turn of the wrist looks partly like the arm moving. So the axis is also learned in use:
-  // each big, quick, clean turn close to the axis known so far pulls it a little its way.
-  turnAxisLearn: 0.4,       // 0..1, how far one such turn moves the axis towards its own. 0: calibration only
-  turnAxisMinDegrees: 60,   // only turns this big teach (and at least turnMinDps quick)
-  turnAxisPurity: 0.9,      // ... that were one clean rotation: net turn at least this share of all turning
-  turnAxisMaxDegrees: 30,   // ... about a direction within this of the axis known so far
-  turnAxisMaxDrift: 45,     // the learned axis never goes further than this from its anchor: the calibrated
-                            //   axis at first
-  turnAxisAnchorTurns: 6,   // this many clear turns in a row with the learned axis more than half that far
-                            //   from the anchor: the band really sits there now, so there is the new anchor.
-                            //   0: the anchor stays where calibration put it
-  turnAxisAnchorMax: 90,    // the anchor itself never goes further than this from the calibrated axis
-  // The gyro's resting offset drifts as the band warms up. Whenever the band lies still, what
-  // the gyro reads then is the new offset.
-  biasStillMs: 1000,        // still for this long. 0: keep the offset from calibration
-  biasNoiseDps: 3,          // "still": each gyro axis within this of its average over that time ...
-  biasTiltDegrees: 2,       // ... and gravity pointing the same way throughout, within this
-  biasMaxDps: 10,           // an offset further than this from the calibrated one is not believed
-  turnPauseMs: 0,           // above 0: after the turn the wrist must pause this long before the step is sent.
-                            //   It was 150, to filter a shake and a turn undone at once; a flick out and
-                            //   straight back never paused, so which half of it counted was chance. Now
-                            //   that a step has to end away from rest it is sent the moment it gets there:
-                            //   out counts, back does not, held or not
-  turnPauseDps: 150,        // "paused": wrist and arm both turning slower than this. Loose on purpose: a
-                            //   wrist keeps settling for a few tenths of a second after a big quick turn
-  turnPauseWaitMs: 1000,    // no pause within this long: it was not a gesture
-  // Rest. Where the wrist is turned to is known all the time: from gravity while it is calm,
-  // and from adding up its turning in between. Where it rests is "rest", and a step is a quick
-  // turn that ends away from rest, on its own side. So turning back to rest is free, quick or
-  // slow and however long the wrist stayed turned, and turning right and then straight over
-  // to the left is right, left.
-  turnRestDegrees: 30,      // a step ends at least this far from rest. 0: rest is not looked at, and every
-                            //   quick turn is a step, so going back has to be slow
-  turnOverDegrees: 45,      // a turn that started this far (turnRestDegrees) out on the other side must end
-                            //   this far from rest to be a step: a wrist coming back overshoots rest a little
-  turnRestLearn: 0.5,       // 0..1: a turn back that stopped short of that shows where rest is: rest moves
-                            //   this share of the way to where it stopped
-  turnRestMs: 4000,         // the wrist still for this long: this is where it rests now
-  turnRestDps: 20,          // "still": the band turning slower than this, about anything
-  turnRestFollow: 0.02,     // 0..1 a sample: how fast rest follows a wrist lying still close to it
+
   // Tilt: how far the wrist is tipped from where it was resting, measured against gravity
   wearingArm: 'left',       // 'left' or 'right': the arm the band is on. A forearm turns outward (thumb away
                             //   from the body, palm coming up) further and more easily than inward. Outward
@@ -156,9 +114,6 @@ export const CONFIG = {
   wakeWords: ['vexo', 'vex oh', "vexo's", 'vecto', 'vexa', 'texaco'],   // what "Vexo" may come back as; case does not matter
   wakeTimeoutMs: 3000,      // nothing said this long after the wake word: forget it
   wakeIgnoreMs: 2000,       // a second wake word this soon after one is ignored
-  wakeEndMs: 900,           // a command is over when nothing more is heard for this long. Deepgram marks a
-                            //   sentence finished at every short pause, so its mark alone cuts commands in two
-  wakeMaxMs: 15000,         // a command is sent after this long at the latest, however much is still being said
   wakeStallMs: 2500,        // words heard but never marked finished: send them after this long
   pushToTalkFlushMs: 1200,  // after the spacebar is released, wait this long for the last words
 
@@ -411,9 +366,7 @@ export function clutchAngle(gravity, calibration, config = CONFIG) {
  * reaching for something or the swing back after a swipe, is not looked at.
  */
 export function createDetector(calibration, config = CONFIG) {
-  const bias0 = calibration.bias || NO_BIAS;
-  const bias = { ...bias0 };   // the gyro's resting offset: calibrated, then followed whenever the band is still
-  let rest = null;             // the band has been still since: { since, n, sum: gyro readings added up, acc }
+  const bias = calibration.bias || NO_BIAS;
   let swipeMin = swipeThreshold(calibration, config);
   let calmSince = null;        // the arm has been level and calm since this time ...
   let calmFor = 0;             // ... the most recent calm lasted this long ...
@@ -428,11 +381,7 @@ export function createDetector(calibration, config = CONFIG) {
   let lastTwist = { side: 0, endedAt: -Infinity };
   const state = {
     clutch: false, calm: false, moving: false, angle: null, twisting: false, roll: 0, twistRate: 0, swipeRate: 0, swipeMin,
-    axisOff: Array.isArray(calibration.wristAxis) ? angleBetween(calibration.wristAxis, calibration.twistVec) : 0,
-    anchor: Array.isArray(calibration.wristAnchor) ? calibration.wristAnchor : calibration.twistVec,   // where the learned axis is anchored
-    turned: 0,                 // how far the wrist is turned from where it rests, degrees clockwise
-    biasOff: 0,                // how far the gyro's resting offset has moved from the calibrated one, deg/s
-    axis: calibration.wristAxis || calibration.twistVec, movement: null, missed: null, limitRight: CONFIG.tiltOutDegrees, limitLeft: CONFIG.tiltOutDegrees, armed: false,
+    movement: null, missed: null, limitRight: CONFIG.tiltOutDegrees, limitLeft: CONFIG.tiltOutDegrees, armed: false,
   };
 
   // Tilt
@@ -453,161 +402,48 @@ export function createDetector(calibration, config = CONFIG) {
   let armSince = null;         // the arm itself has been turning since this time
 
   // Turn
-  let turn = null;             // the wrist turn in progress: { side, angle, arm, peak, fired, left, rot, path }
-  // The wrist's axis: calibrated, then learned from clear turns (and kept by the page as calibration.wristAxis)
-  let wristAxis = (Array.isArray(calibration.wristAxis) ? calibration.wristAxis : calibration.twistVec).slice();
-  let anchor = (Array.isArray(calibration.wristAnchor) ? calibration.wristAnchor : calibration.twistVec).slice();
-  let farTurns = 0;            // clear turns in a row with the learned axis far from the anchor
+  let turn = null;             // the wrist turn in progress: { side, angle, arm, peak, fired, left }
   let turnQuiet = null;        // the wrist has turned slower than turnEndDps since this time
-  let waiting = null;          // a turn that qualified and now waits for the pause: { at, side, angle, wrist, arm, back, since }
-  let roll = null;             // how far the wrist is turned, degrees clockwise from the calibrated pose
-  let home = 0;                // the roll it rests at
-  let homeStill = null;        // the band has been still since this time
-  let homeLost = false;        // the arm has been away from level: rest is to be found again
-
-  function turnNote(angle, arm, result, counted) {
-    state.movement = { swipe: arm, twist: angle, winner: 'turn', result, counted };
-    state.missed = counted ? null : result;
-  }
-
-  /**
-   * Follow how far the wrist is turned, and where it rests. Gravity says how far while the
-   * band is calm; the turning added up carries it through a movement. Rest is where the wrist
-   * lies still for turnRestMs, or at once when the arm has just come level, and it follows a
-   * wrist lying still close to it.
-   */
-  function followRoll(s, w, twistRate, dt) {
-    const accel = [s.ax, s.ay, s.az], speed = Math.hypot(...w);
-    const measured = wristRoll(accel, calibration);
-    if (roll === null) { roll = measured; home = measured; }
-    roll = wrap(roll + twistRate * dt);
-    if (speed < 60 && Math.abs(Math.hypot(...accel) - 1) < 0.15) roll = wrap(roll + 0.1 * wrap(measured - roll));
-    if (!state.clutch) { homeLost = true; homeStill = null; }
-    else if (speed >= config.turnRestDps) homeStill = null;
-    else {
-      if (homeStill === null) homeStill = s.t;
-      const turned = wrap(roll - home), stillFor = s.t - homeStill;
-      if (stillFor >= config.turnRestMs || (homeLost && stillFor >= 300)) { home = roll; homeLost = false; }
-      else if (Math.abs(turned) < config.turnRestDegrees / 2) home = wrap(home + config.turnRestFollow * turned);
-    }
-    state.turned = wrap(roll - home);
-  }
-
-  function sendTurn(t, side, angle, arm, out) {
-    out.push({ type: 'step', direction: side });
-    cooldownUntil = t + config.cooldownMs;
-    turnNote(angle, arm, side > 0 ? 'Right' : 'Left', true);
-  }
-
-  /** Learn the wrist's axis from the turn that just ended, if it was a clear one. */
-  /** While the band lies still, the gyro's reading is its resting offset. */
-  function followBias(s) {
-    if (!(config.biasStillMs > 0)) return;
-    const g = GYRO.map((axis) => s[axis]), acc = [s.ax, s.ay, s.az];
-    const still = rest && g.every((v, i) => Math.abs(v - rest.sum[i] / rest.n) <= config.biasNoiseDps)
-      && angleBetween(acc, rest.acc) <= config.biasTiltDegrees;
-    if (!still) { rest = { since: s.t, n: 1, sum: g, acc }; return; }
-    rest.n += 1; rest.sum = rest.sum.map((v, i) => v + g[i]);
-    if (s.t - rest.since < config.biasStillMs) return;
-    const mean = rest.sum.map((v) => v / rest.n);
-    if (GYRO.some((axis, i) => Math.abs(mean[i] - bias0[axis]) > config.biasMaxDps)) return;
-    GYRO.forEach((axis, i) => { bias[axis] = mean[i]; });
-    state.biasOff = Math.hypot(...GYRO.map((axis) => bias[axis] - bias0[axis]));
-  }
-
-  function learnAxis() {
-    const total = Math.hypot(...turn.rot);
-    if (config.turnAxisLearn <= 0 || turn.left || total < config.turnAxisMinDegrees || turn.peak < config.turnMinDps) return;
-    if (total < config.turnAxisPurity * turn.path) return;               // not one clean rotation
-    const measured = unit(turn.rot).map((v) => v * turn.side);           // the direction this turn was about
-    if (angleBetween(measured, wristAxis) > config.turnAxisMaxDegrees) return;
-    const next = unit(wristAxis.map((v, i) => v + config.turnAxisLearn * (measured[i] - v)));
-    const held = angleBetween(next, anchor) > config.turnAxisMaxDrift;   // as far as the anchor lets it go
-    if (!held) wristAxis = next;
-    // Turn after turn far from the anchor: the band sits there now. Anchor there, for room to follow on.
-    farTurns = held || angleBetween(wristAxis, anchor) > config.turnAxisMaxDrift / 2 ? farTurns + 1 : 0;
-    if (config.turnAxisAnchorTurns > 0 && farTurns >= config.turnAxisAnchorTurns
-      && angleBetween(wristAxis, calibration.twistVec) <= config.turnAxisAnchorMax) {
-      anchor = wristAxis.slice(); farTurns = 0;
-      state.anchor = anchor;
-    }
-    if (held) return;
-    state.axisOff = angleBetween(wristAxis, calibration.twistVec);
-    state.axis = wristAxis;
-  }
 
   /** A turn is over: if it was not a step, say why (small wobbles say nothing). */
   function endTurn() {
-    learnAxis();
     const far = Math.abs(turn.angle);
     if (!turn.fired && far >= 20) {
       const limit = turn.side > 0 ? state.limitRight : state.limitLeft;
-      const cameBack = -turn.side * turn.from >= config.turnRestDegrees;  // it started out on the other side
-      const back = config.turnRestDegrees > 0
-        && turn.side * state.turned < (cameBack ? Math.max(config.turnOverDegrees, config.turnRestDegrees) : config.turnRestDegrees);
-      // Where a turn back stopped is about where the wrist rests.
-      if (back && cameBack && !turn.left && far >= limit) { home = wrap(home + config.turnRestLearn * state.turned); state.turned = wrap(roll - home); }
       const why = turn.left ? 'the arm was not level'
         : turn.arm > config.turnArmShare * far ? `the arm was moving: it turned ${Math.round(turn.arm)} degrees, the wrist ${Math.round(far)}`
           : far < limit ? `too small: ${Math.round(far)} of ${limit} degrees`
-            : back ? 'going back to rest: not counted'
-              : turn.peak < config.turnMinDps ? `too slow: peak ${Math.round(turn.peak)} of ${config.turnMinDps} deg/s (a slow turn is free)`
-                : 'too soon after the last one';
-      turnNote(turn.angle, turn.arm, why, false);
+            : turn.peak < config.turnMinDps ? `too slow: peak ${Math.round(turn.peak)} of ${config.turnMinDps} deg/s (a slow turn is free)`
+              : 'too soon after the last one';
+      state.movement = { swipe: turn.arm, twist: turn.angle, winner: 'turn', result: why, counted: false };
+      state.missed = why;
     }
     turn = null; turnQuiet = null;
   }
 
   /** One sample of the turn gesture. `armRate` is the turning about anything but the forearm, deg/s. */
   function turnUpdate(s, twistRate, armRate, dt, out) {
-    const w = gyro(s, bias);
     const outIsRight = config.wearingArm !== 'left';                  // outward is clockwise on the right arm
     state.limitRight = outIsRight ? config.turnOutDegrees : config.turnInDegrees;
     state.limitLeft = outIsRight ? config.turnInDegrees : config.turnOutDegrees;
     state.calm = state.clutch; state.why = state.clutch ? null : 'arm not level';
-    followRoll(s, w, twistRate, dt);
-    if (waiting) {                                       // a turn qualified: is it followed by a pause?
-      waiting.wrist += Math.abs(twistRate) * dt;
-      waiting.arm += armRate * dt;
-      waiting.back += twistRate * dt;
-      const paused = Math.abs(twistRate) < config.turnPauseDps && armRate < config.turnPauseDps;
-      if (!paused) waiting.since = null; else if (waiting.since === null) waiting.since = s.t;
-      const undone = waiting.back * waiting.side < -0.5 * Math.abs(waiting.angle);
-      const why = !state.clutch ? 'the arm was not level'
-        : undone ? 'turned straight back: pause at the end of a turn'
-          : waiting.arm > config.turnArmShare * waiting.wrist ? `the arm was moving: it turned ${Math.round(waiting.arm)} degrees, the wrist ${Math.round(waiting.wrist)}`
-            : s.t - waiting.at > config.turnPauseWaitMs ? 'no pause after the turn' : null;
-      if (why) {
-        turnNote(waiting.angle, waiting.arm, why, false);
-        waiting = null;
-      }
-      else if (waiting.since !== null && s.t - waiting.since >= config.turnPauseMs) {
-        sendTurn(s.t, waiting.side, waiting.angle + waiting.back, waiting.arm, out);
-        waiting = null;
-      }
-    }
     if (turn && Math.sign(twistRate) === -turn.side && Math.abs(twistRate) > config.turnStartDps) endTurn();   // turned back
     if (!turn && state.clutch && Math.abs(twistRate) > config.turnStartDps) {
-      turn = { side: Math.sign(twistRate), from: state.turned, angle: 0, arm: 0, peak: 0, fired: false, left: false, rot: [0, 0, 0], path: 0 };
+      turn = { side: Math.sign(twistRate), angle: 0, arm: 0, peak: 0, fired: false, left: false };
     }
     if (turn) {
-      turn.rot = turn.rot.map((v, i) => v + w[i] * dt);                  // the whole rotation, for learning the axis
-      turn.path += Math.hypot(...w) * dt;
       turn.angle += twistRate * dt;
       turn.arm += armRate * dt;
       turn.peak = Math.max(turn.peak, Math.abs(twistRate));
       if (!state.clutch) turn.left = true;
       const far = Math.abs(turn.angle), limit = turn.side > 0 ? state.limitRight : state.limitLeft;
-      // A step ends away from rest, on its own side. Turning back to rest never gets there.
-      // One that started out on the other side is coming back, and has to get well past rest.
-      const need = -turn.side * turn.from >= config.turnRestDegrees ? Math.max(config.turnOverDegrees, config.turnRestDegrees) : config.turnRestDegrees;
-      const awayEnough = config.turnRestDegrees <= 0 || turn.side * state.turned >= need;
-      if (!turn.fired && !turn.left && !waiting && far >= limit && turn.peak >= config.turnMinDps
-        && awayEnough
+      if (!turn.fired && !turn.left && far >= limit && turn.peak >= config.turnMinDps
         && turn.arm <= config.turnArmShare * far && s.t >= cooldownUntil) {
         turn.fired = true;
-        if (config.turnPauseMs > 0) waiting = { at: s.t, side: turn.side, angle: turn.angle, wrist: far, arm: turn.arm, back: 0, since: null };
-        else sendTurn(s.t, turn.side, turn.angle, turn.arm, out);
+        out.push({ type: 'step', direction: turn.side });
+        cooldownUntil = s.t + config.cooldownMs;
+        state.movement = { swipe: turn.arm, twist: turn.angle, winner: 'turn', result: turn.side > 0 ? 'Right' : 'Left', counted: true };
+        state.missed = null;
       }
       if (Math.abs(twistRate) < config.turnEndDps) {
         if (turnQuiet === null) turnQuiet = s.t;
@@ -615,7 +451,7 @@ export function createDetector(calibration, config = CONFIG) {
       } else turnQuiet = null;
     }
     state.roll = turn ? turn.angle : 0;
-    state.moving = turn !== null || waiting !== null;
+    state.moving = turn !== null;
   }
 
   /**
@@ -783,19 +619,13 @@ export function createDetector(calibration, config = CONFIG) {
   }
 
   function update(s) {
-    followBias(s);
     const out = [];
     const dt = lastT === null ? 0 : Math.max(0, Math.min(0.05, (s.t - lastT) / 1000));
     lastT = s.t;
     const accel = [s.ax, s.ay, s.az];
-    // A quick turn throws the band about: its acceleration is then not gravity. Leave those samples out,
-    // or the arm seems to leave the level pose in the middle of a turn.
-    const jolted = Math.abs(Math.hypot(...accel) - 1) > config.tiltMaxShake;
-    if (gravity === null) gravity = accel;
-    else if (!jolted) gravity = gravity.map((g, i) => g + config.gravitySmoothing * (accel[i] - g));
+    gravity = gravity === null ? accel : gravity.map((g, i) => g + config.gravitySmoothing * (accel[i] - g));
     up = up === null ? accel : up.map((g, i) => g + config.upSmoothing * (accel[i] - g));
-    const turnMode = config.gestures === 'turn';
-    state.angle = clutchAngle(gravity, turnMode ? { ...calibration, twistVec: wristAxis } : calibration, config);
+    state.angle = clutchAngle(gravity, calibration, config);
     state.clutch = state.angle <= config.clutchDegrees;
     state.swipeMin = swipeMin = swipeThreshold(calibration, config);
 
@@ -809,7 +639,7 @@ export function createDetector(calibration, config = CONFIG) {
     const settled = config.settleMs <= 0 || (calmFor >= config.settleMs && s.t - calmEndedAt <= config.settleGraceMs);
     state.calm = settled;
 
-    const twistRate = rateAbout(s, turnMode ? wristAxis : calibration.twistVec, bias);   // clockwise-positive
+    const twistRate = rateAbout(s, calibration.twistVec, bias);            // clockwise-positive
     const swipeRate = config.swipeAxis === 'calibrated'                    // right-positive
       ? rateAbout(s, calibration.swipeVec, bias)
       : rateAbout(s, sidewaysAxis(up, calibration.twistVec), bias) * (calibration.swipeSign || 1);
