@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreImage
 import Foundation
 import ImageIO
 import Vision
@@ -63,13 +64,33 @@ public enum MarkerDecoder {
             orientation = value
         }
 
+        let codes = try detect(VNImageRequestHandler(data: imageData, orientation: orientation, options: [:]))
+        if codes.contains(where: { $0.target != nil }) { return codes }
+
+        // A marker that is small in the photo (far away) or soft (out of focus, head moving) is
+        // often still readable at twice the size with the edges sharpened.
+        guard let enlarged = enlarge(imageData) else { return codes }
+        let second = try detect(VNImageRequestHandler(cgImage: enlarged, orientation: orientation, options: [:]))
+        return second.contains(where: { $0.target != nil }) ? second : codes
+    }
+
+    private static func detect(_ handler: VNImageRequestHandler) throws -> [DetectedCode] {
         let request = VNDetectBarcodesRequest()
         request.symbologies = [.qr]
-        try VNImageRequestHandler(data: imageData, orientation: orientation, options: [:]).perform([request])
+        try handler.perform([request])
         return (request.results ?? []).compactMap { observation in
             guard let text = observation.payloadStringValue else { return nil }
             return DetectedCode(payload: text, target: TargetMarker.target(for: text), boundingBox: observation.boundingBox)
         }
+    }
+
+    private static let context = CIContext()
+
+    private static func enlarge(_ imageData: Data) -> CGImage? {
+        guard let image = CIImage(data: imageData) else { return nil }
+        let scaled = image.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 2.0, kCIInputAspectRatioKey: 1.0])
+        let sharp = scaled.applyingFilter("CIUnsharpMask", parameters: [kCIInputRadiusKey: 3.0, kCIInputIntensityKey: 1.8])
+        return context.createCGImage(sharp, from: scaled.extent)
     }
 }
 

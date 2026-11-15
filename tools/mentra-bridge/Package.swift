@@ -17,6 +17,6 @@ let package = Package(
             "MentraBridgeCore",
             .product(name: "MentraBluetoothSDK", package: "mentra-bluetooth-sdk-ios"),
         ]),
-        .testTarget(name: "MentraBridgeCoreTests", dependencies: ["MentraBridgeCore"]),
+        .testTarget(name: "MentraBridgeCoreTests", dependencies: ["MentraBridgeCore"], exclude: ["Fixtures"]),
     ]
 )

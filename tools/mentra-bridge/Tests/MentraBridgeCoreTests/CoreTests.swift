@@ -28,6 +28,14 @@ struct CoreTests {
         }
     }
 
+    /// A real glasses photo with a soft (out of focus) marker pasted in. Vision misses it at
+    /// the photo's own size; the enlarged, sharpened second pass reads it.
+    @Test func softMarkerIsReadOnTheSecondPass() throws {
+        let photo = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/soft-marker-person-blue.jpg")
+        #expect(TargetPicker.pick(try MarkerDecoder.decode(Data(contentsOf: photo)))?.target == "personBlue")
+    }
+
     @Test func notAPhotoIsAnError() {
         #expect(throws: UnreadablePhoto.self) { try MarkerDecoder.decode(Data("not a jpeg".utf8)) }
     }

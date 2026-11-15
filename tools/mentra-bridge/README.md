@@ -85,8 +85,26 @@ Two things keep it short:
   the bridge when idle. The first photo after changing
   the size is slow because the camera reconfigures.
 
-Fast has a quarter of the pixels, so a marker has to be about twice as close. Not yet
-measured: the farthest distance each setting reads a 20 cm marker from. Check it on stage.
+## How big the marker has to be
+
+Measured by pasting the printed markers into real glasses photos at different sizes
+(4 photos per row, all 5 markers, no wrong reads in 192 photos). Not yet measured with a
+real marker in front of the glasses.
+
+| Marker width in the photo | Sharp | Slightly soft | Blurred |
+| --- | --- | --- | --- |
+| 48 px | 3 of 4 at 1280 px, 1 of 4 at 640 px | no | no |
+| 64 px | yes | no | no |
+| 80 px | yes | 3 of 4 at 1280 px, 2 of 4 at 640 px | no |
+| 110 px | yes | yes | no |
+| 160 px | yes | yes | yes |
+
+So a marker should fill at least 5% of the photo's width when everything is sharp, and
+closer to 10% to survive focus and head movement. A photo that shows no marker gets a
+second pass at twice the size with the edges sharpened; that pass is what reads the soft
+and blurred rows above. Fast (640 px) has half the pixels across, so the marker has to be
+twice as close. Hold your head still for the moment of the photo, and print markers as
+large as the stage allows.
 
 ## Control endpoint
 
