@@ -63,28 +63,44 @@ then **Calibrate** and follow the two steps (arm level, then twist starting cloc
 | Double-tap | `{ "type": "select" }` |
 
 The arm makes one gesture: turn the wrist quickly, like turning a key. Every quick turn is
-one step in its direction. A slow turn does not count: to step the same way twice, turn
-quickly, come back slowly, turn quickly again. `adjust` is no longer sent.
+one step in its direction. Coming straight back to rest does not count, quick or slow: to
+step the same way twice, turn, come back, turn again. `adjust` is no longer sent.
 
 How it works (`gestures.js`, `gestures: 'turn'`):
 
 - Only the wrist's turning about the forearm is looked at, from the gyro. A turn starts when
   it passes `turnStartDps` and ends when it stops or turns back.
 - It is a step once it has gone `turnOutDegrees` (45, the easy way) or `turnInDegrees` (40),
-  peaked above `turnMinDps` (250 deg/s), and the arm itself turned at most `turnArmShare`
-  (half) of what the wrist turned. So raising, lowering or swinging the arm sends nothing.
+  peaked above `turnMinDps` (150 deg/s), and the arm itself turned at most `turnArmShare`
+  (0.6) of what the wrist turned. So raising, lowering or swinging the arm sends nothing.
 - The wrist's axis comes from calibration and is then learned in use (`turnAxisLearn`): a
   band shifts on the wrist, and with the axis 20 degrees out most real turns look like arm
   movement. Each big, quick, clean turn within 30 degrees of the axis known so far pulls it
   towards its own; the learned axis is kept with the calibration. On a recording of band 76
   that had shifted 22 degrees (`test/fixtures/real-shifted-band.json`) calibration alone
   gave 2 steps, both left; with learning the same motion gives 7 right and 6 left.
+- Two things adapt on their own between calibrations. The learned axis stays within 45
+  degrees (`turnAxisMaxDrift`) of an anchor, the calibrated axis at first; after
+  `turnAxisAnchorTurns` (6) clear turns in a row more than half that far out, the anchor
+  moves to the learned axis (never past `turnAxisAnchorMax`, 90 degrees from calibration),
+  so a band that has shifted a lot is still followed. And whenever the band lies still for
+  `biasStillMs` (1 second), what the gyro reads becomes its resting offset.
 - One turn is one step, however far it goes, and a turn of more than half a circle keeps
   its direction.
-- The step is sent once the wrist has then paused for `turnPauseMs` (150 ms; wrist and arm
-  under `turnPauseDps`). That filters a shake, a turn undone at once and a turn that runs on
-  into arm movement, and it makes each step later by the pause plus the time the wrist takes
-  to settle (0.2 to 0.5 s on the recording). `turnPauseMs: 0` sends the step mid-turn.
+- The step is sent the moment the turn gets far enough from rest, so a flick out and
+  straight back counts the same as a turn that is held. `turnPauseMs` above 0 (it was 150)
+  makes the wrist pause that long first, which filters more and misses flicks.
+- A turn that started out on the other side of rest is the wrist coming back, and it
+  overshoots a little: it must end `turnOverDegrees` (45) from rest to be a step, and where
+  it stops short of that teaches where rest is (`turnRestLearn`).
+- A step ends away from rest. How far the wrist is turned is known all the time (from
+  gravity while it is calm, from its turning added up in between), and so is where it rests:
+  where it lies still for `turnRestMs` (4 seconds), or at once when the arm has just come
+  level. A quick turn is a step only if it ends `turnRestDegrees` (30) or more from rest, on
+  its own side. So turning back to rest is free, quick or slow and however long the wrist
+  stayed turned, and right and then straight over to the left is right, left. Hold a turn
+  longer than `turnRestMs` and that is rest from then on. `turnRestDegrees: 0` counts every
+  quick turn.
 - Nothing counts while the forearm is more than 50 degrees from level (`clutchDegrees`).
 - Calibration is two poses: arm level, then twist (it gives the forearm's direction in the band).
 

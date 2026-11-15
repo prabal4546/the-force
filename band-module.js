@@ -226,6 +226,7 @@ function onMotion(sample) {
   if (detector && !calibrating) send(detector.update(sample));
   if (detector && detector.state.axis !== calibration.wristAxis && detector.state.axis !== calibration.twistVec) {
     calibration.wristAxis = detector.state.axis;         // the wrist's axis was learned a little further: keep it
+    if (detector.state.anchor !== calibration.twistVec) calibration.wristAnchor = detector.state.anchor;
     try { localStorage.setItem(storageKey, JSON.stringify(calibration)); } catch { /* no storage: kept until the page closes */ }
   }
 }
