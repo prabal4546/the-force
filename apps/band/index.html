@@ -16,80 +16,106 @@
     }
   }
   * { box-sizing: border-box; }
-  body { font: 16px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px 16px 60px; }
-  main { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
-  h1 { font-size: 24px; margin: 0; }
-  h2 { font-size: 15px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-  p { margin: 0 0 10px; }
-  .muted { color: var(--muted); font-size: 14px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
-  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  body { font: 15px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px 16px 60px; }
+  main { max-width: 1040px; margin: 0 auto; display: grid; gap: 14px; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; }
+  main > .wide { grid-column: 1 / -1; }
+  .stack { display: grid; gap: 14px; min-width: 0; }
+  @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 12px; margin: 0; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+  p { margin: 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; min-width: 0; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; min-height: 26px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .spread { justify-content: space-between; }
-  button { font: inherit; padding: 8px 16px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+  .push { margin-left: auto; }
+  button { font: inherit; padding: 7px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
   button:disabled { opacity: .45; cursor: default; }
-  .pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; background: var(--idle-bg); color: var(--muted); }
+  .pill { display: inline-block; padding: 3px 11px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--idle-bg); color: var(--muted); white-space: nowrap; }
   .pill.good { background: var(--good-bg); color: var(--good); }
-  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); white-space: normal; }
   .pill.blue { background: var(--blue-bg); color: var(--accent); }
-  #status { min-height: 22px; }
+  code { font: 12px ui-monospace, monospace; }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; }
+  details > summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+  details[open] > summary { margin-bottom: 12px; }
+  details.more { margin-top: 12px; }
+  details.more > summary { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 13px; }
+  details.more[open] > summary { margin-bottom: 8px; }
 
-  /* Gestures */
-  .gestures { display: grid; grid-template-columns: 150px 1fr; gap: 24px; align-items: center; }
-  #dial { width: 140px; height: 140px; border: 4px solid var(--line); border-radius: 50%; position: relative; }
-  #needle { position: absolute; left: 50%; top: 8px; width: 5px; height: 62px; margin-left: -2.5px; background: var(--accent); transform-origin: 50% 100%; border-radius: 3px; transition: transform .08s linear; }
-  #level { position: absolute; left: 0; right: 0; bottom: 20px; text-align: center; font-weight: 700; font-size: 18px; }
-  #gesture { font-size: 26px; font-weight: 700; min-height: 38px; margin-bottom: 12px; }
-  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 8px 4px; text-align: center; font-size: 13px; color: var(--muted); transition: background .4s, color .4s, border-color .4s; }
-  .tile b { display: block; font-size: 22px; font-weight: 400; }
-  .tile.hit { background: var(--accent); border-color: var(--accent); color: #fff; transition: none; }
-  .meter { margin-top: 14px; }
-  .meter label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-  .track { position: relative; height: 14px; background: var(--idle-bg); border-radius: 7px; overflow: hidden; }
-  .track i { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 7px; }
-  .track u { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .55; }
-  @media (max-width: 560px) { .gestures { grid-template-columns: 1fr; justify-items: center; } .tiles { grid-template-columns: repeat(3, 1fr); } }
-
-  /* Messages, voice, details */
-  #log { font: 13px/1.5 ui-monospace, monospace; white-space: pre; height: 190px; overflow: auto; background: var(--idle-bg); border-radius: 9px; padding: 10px 12px; }
-  input[type=password] { font: inherit; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 250px; max-width: 100%; }
-  #sending { color: var(--bad); font-weight: 600; min-height: 22px; }
-  #heard { font-size: 18px; min-height: 28px; }
-  #heard b { color: var(--accent); }
-  input[type=text] { font: inherit; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 150px; }
-  input[type=color] { width: 44px; height: 38px; padding: 2px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); }
-  input[type=number] { font: inherit; padding: 6px 8px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); width: 76px; }
-  #swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 6px; border: 1px solid var(--line); }
+  /* Top bar */
+  #status { margin-top: 10px; min-height: 19px; }
+  #swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; margin-right: 6px; border: 1px solid var(--line); }
   body.error main { outline: 4px solid var(--bad); outline-offset: 6px; border-radius: 18px; }
-  kbd { font: 13px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; }
-  details summary { cursor: pointer; font-weight: 600; }
-  #readouts { margin: 12px 0; font-size: 14px; }
-  #readouts td { padding: 2px 16px 2px 0; }
-  #readouts td:last-child { font-family: ui-monospace, monospace; }
-  .graph { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
-  .graph span { width: 110px; font: 13px ui-monospace, monospace; }
-  canvas { border: 1px solid var(--line); border-radius: 6px; width: 380px; max-width: 100%; height: 70px; }
-  #taps { font: 13px ui-monospace, monospace; white-space: pre; height: 100px; overflow-y: auto; background: var(--idle-bg); border-radius: 9px; padding: 8px 12px; }
 
+  /* Gesture */
+  .gestures { display: grid; grid-template-columns: 130px 1fr; gap: 20px; align-items: center; }
+  #dial { width: 124px; height: 124px; border: 4px solid var(--line); border-radius: 50%; position: relative; }
+  #needle { position: absolute; left: 50%; top: 8px; width: 5px; height: 54px; margin-left: -2.5px; background: var(--accent); transform-origin: 50% 100%; border-radius: 3px; transition: transform .08s linear; }
+  #level { position: absolute; left: 0; right: 0; bottom: 16px; text-align: center; font-weight: 700; font-size: 17px; }
+  #gesture { font-size: 34px; font-weight: 750; line-height: 1.15; min-height: 40px; margin-bottom: 12px; letter-spacing: -.01em; }
+  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 8px 4px; text-align: center; font-size: 12px; color: var(--muted); transition: background .4s, color .4s, border-color .4s; }
+  .tile b { display: block; font-size: 20px; font-weight: 400; }
+  .tile.hit { background: var(--accent); border-color: var(--accent); color: #fff; transition: none; }
+  .meter { margin-top: 12px; }
+  .meter label { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .track { position: relative; height: 12px; background: var(--idle-bg); border-radius: 6px; overflow: hidden; }
+  .track i { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 6px; }
+  .track u { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); opacity: .55; }
+  #whyNot { margin-top: 10px; min-height: 19px; color: var(--warn); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 5px 12px; font-size: 13px; }
+  .seg button + button { border-left: 1px solid var(--line); }
   body.one #dial, body.one #tile-adjust { display: none; }
+  body.one .gestures { grid-template-columns: 1fr; }
+  body.one .tiles { grid-template-columns: repeat(4, 1fr); }
   body.sweep #rollMeter, body.tilt #swipeMeter { display: none; }
   body.tilt .steps { grid-template-columns: repeat(2, 1fr); }
   #rollTrack u { display: none; }
   body.tilt #rollTrack u { display: block; }
   body.tilt #rollTrack.hit i { background: var(--good); }
-  body.one .gestures { grid-template-columns: 1fr; }
-  body.one .tiles { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 560px) { .gestures { grid-template-columns: 1fr; justify-items: center; } .tiles { grid-template-columns: repeat(3, 1fr); } }
+
+  /* Messages, voice */
+  #log { font: 12px/1.55 ui-monospace, monospace; white-space: pre; height: 168px; overflow: auto; background: var(--idle-bg); border-radius: 9px; padding: 9px 11px; }
+  #hubText { margin-top: 8px; min-height: 19px; }
+  input[type=password], input[type=text], input[type=number] { font: inherit; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  input[type=password] { flex: 1 1 180px; min-width: 0; }
+  input[type=text] { width: 130px; }
+  #bandNumber { width: 58px; font-size: 18px; font-weight: 700; text-align: center; padding: 3px 6px; }
+  input[type=number] { width: 72px; }
+  input[type=color] { width: 40px; height: 34px; padding: 2px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); }
+  #heard { font-size: 17px; }
+  #heard:empty { display: none; }
+  #heard b { color: var(--accent); }
+  #sending { color: var(--bad); font-weight: 600; font-size: 13px; margin: 8px 0; }
+  #sending:empty { display: none; }
 
   /* Fine tuning */
-  .tune { display: grid; grid-template-columns: 190px 1fr 92px; gap: 2px 14px; align-items: center; margin-top: 14px; }
-  .tune label { font-weight: 600; font-size: 15px; }
+  .tune { display: grid; grid-template-columns: 190px 1fr 96px; gap: 8px 14px; align-items: center; }
+  .tune label { font-size: 14px; }
   .tune input[type=range] { width: 100%; accent-color: var(--accent); }
-  .tune output { font: 14px ui-monospace, monospace; text-align: right; }
+  .tune output { font: 13px ui-monospace, monospace; text-align: right; }
   .tune output.changed { color: var(--accent); font-weight: 700; }
-  .tune small { grid-column: 1 / -1; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
-  #tuneText { font: 13px/1.5 ui-monospace, monospace; white-space: pre; background: var(--idle-bg); border-radius: 9px; padding: 10px 12px; margin-top: 10px; display: none; overflow-x: auto; }
-  @media (max-width: 560px) { .tune { grid-template-columns: 1fr 92px; } .tune label { grid-column: 1 / -1; } }
+  .tune small { display: none; grid-column: 1 / -1; color: var(--muted); font-size: 12px; margin: -4px 0 4px; }
+  .tune.help small { display: block; }
+  #tuneText { font: 12px/1.5 ui-monospace, monospace; white-space: pre; background: var(--idle-bg); border-radius: 9px; padding: 9px 11px; margin-top: 10px; display: none; overflow-x: auto; }
+  @media (max-width: 560px) { .tune { grid-template-columns: 1fr 96px; } .tune label { grid-column: 1 / -1; } }
+
+  /* Sensors */
+  .sensors { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+  @media (max-width: 860px) { .sensors { grid-template-columns: minmax(0, 1fr); } }
+  #readouts { font-size: 13px; border-collapse: collapse; }
+  #readouts td { padding: 2px 14px 2px 0; vertical-align: top; }
+  #readouts td:first-child { color: var(--muted); white-space: nowrap; }
+  #readouts td:last-child { font-family: ui-monospace, monospace; font-size: 12px; }
+  .graph { display: flex; align-items: center; gap: 10px; margin: 5px 0; }
+  .graph span { width: 100px; font: 12px ui-monospace, monospace; }
+  canvas { border: 1px solid var(--line); border-radius: 6px; width: 340px; max-width: 100%; height: 56px; }
+  #taps { font: 12px ui-monospace, monospace; white-space: pre; height: 84px; overflow-y: auto; background: var(--idle-bg); border-radius: 9px; padding: 8px 11px; margin-top: 6px; }
 
   /* Calibration */
   #wizard { position: fixed; inset: 0; background: rgba(8, 10, 14, .62); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
@@ -117,24 +143,25 @@
 </style>
 
 <main>
-  <header class="card">
-    <div class="row spread">
-      <h1 id="title">Band remote</h1>
+  <header class="card wide">
+    <div class="row">
+      <h1 id="title">Band</h1>
+      <input id="bandNumber" type="text" inputmode="numeric" maxlength="3" aria-label="Band number" title="The XX in Vexo-HACK-XX. Change it while disconnected.">
       <span id="link" class="pill">Not connected</span>
-    </div>
-    <div class="row" style="margin-top: 14px">
-      <button id="connect" class="primary">Connect</button>
-      <button id="disconnect" disabled>Disconnect</button>
-      <button id="calibrate" disabled>Calibrate</button>
       <span class="muted">Battery <b id="battery">--</b></span>
       <span id="active" class="pill"><i id="swatch"></i><span id="activeName">No active device</span></span>
+      <span class="row push">
+        <button id="connect" class="primary">Connect</button>
+        <button id="disconnect" disabled>Disconnect</button>
+        <button id="calibrate" disabled>Calibrate</button>
+      </span>
     </div>
-    <p id="status" class="muted" style="margin: 12px 0 0">Before each connect: double-tap the band, and close any other tab that uses it.</p>
+    <p id="status" class="muted">Type your band number, double-tap the band, then Connect.</p>
   </header>
 
   <section class="card">
-    <div class="row spread" style="margin-bottom: 12px">
-      <h2 style="margin: 0">Gestures</h2>
+    <div class="head">
+      <h2>Gesture</h2>
       <span id="clutch" class="pill">--</span>
     </div>
     <div class="gestures">
@@ -153,117 +180,145 @@
           <div class="track" id="rollTrack"><i id="rollBar"></i><u id="rollLeft"></u><u id="rollRight"></u></div>
         </div>
         <div class="meter" id="swipeMeter">
-          <label><span id="swipeLabel">Swipe strength (line = how hard a swipe must be)</span><span id="swipeText">--</span></label>
+          <label><span id="swipeLabel">Swipe strength</span><span id="swipeText">--</span></label>
           <div class="track"><i id="swipeBar" style="left: 0"></i><u id="swipeMark"></u></div>
         </div>
       </div>
     </div>
-    <div class="row" id="armRow" style="margin-top: 14px">
-      <span class="muted">Band is on my</span>
-      <button id="arm-left">Left arm</button>
-      <button id="arm-right">Right arm</button>
-      <span class="muted">the easy way to tip is outward, so each arm gets its own distances</span>
+    <p id="whyNot" class="muted"></p>
+    <div class="row" id="armRow" style="margin-top: 8px">
+      <span class="muted">Band on</span>
+      <span class="seg"><button id="arm-left">Left arm</button><button id="arm-right">Right arm</button></span>
     </div>
-    <p id="whyNot" class="muted" style="margin: 12px 0 0; min-height: 20px"></p>
-    <p class="muted" id="howTo" style="margin: 8px 0 0">Hold your forearm level with your <b>thumb up</b>, like holding a mug: from there the wrist can turn both ways.
-      Twist away from rest to adjust (turning back is free), swipe your forearm sideways, pivoting at the elbow (left or right in the room, however your wrist is turned) to step, tap or double-tap the band.</p>
+    <details class="more">
+      <summary>How to</summary>
+      <p class="muted" id="howTo">Twist to adjust, swipe to step, tap or double-tap the band.</p>
+    </details>
   </section>
 
-  <section class="card">
-    <div class="row spread" style="margin-bottom: 12px">
-      <h2 style="margin: 0">Voice</h2>
-      <span id="micState" class="pill">Off</span>
-    </div>
-    <div class="row">
-      <input id="deepgramKey" type="password" placeholder="Paste Deepgram key, press Enter" autocomplete="off">
-      <button id="forgetKey">Forget key</button>
-      <button id="mute">Mute</button>
-    </div>
-    <p id="heard" style="margin-top: 14px"></p>
-    <p class="muted">Say <b>“Vexo”</b> and then what you want, or hold <kbd>Space</kbd> and just speak.</p>
-    <div class="meter">
-      <label><span>Loudness at the band (line = about where a close voice sits)</span><span id="loudText">--</span></label>
-      <div class="track"><i id="loudBar" style="left: 0"></i><u style="left: 55%"></u></div>
-    </div>
-    <div class="row" style="margin-top: 12px">
-      <label class="muted" for="gain">Mic gain, dB</label>
-      <input id="gain" type="number" min="-20" max="20" step="1">
-      <span class="muted">lower = only a voice near the wrist. Put the value you like into <code>micGainDb</code> in CONFIG.</span>
-    </div>
-    <p id="sending" style="margin-top: 12px"></p>
-    <p class="muted">The microphone is on from connect: everything it hears, from everyone nearby, goes over the internet to Deepgram.
-      Tell the people near you, and press Mute when you are not using it. The key stays in this tab only and is gone when the tab closes.</p>
-  </section>
-
-  <section class="card">
-    <div class="row spread" style="margin-bottom: 12px">
-      <h2 style="margin: 0">Incoming messages</h2>
-      <span id="speechState" class="pill">No key</span>
-    </div>
-    <div class="row">
-      <input id="elevenKey" type="password" placeholder="Paste ElevenLabs key, press Enter" autocomplete="off">
-      <button id="forgetEleven">Forget key</button>
-    </div>
-    <p class="muted" style="margin: 10px 0 14px">For <code>say</code>: the text goes to ElevenLabs and plays through this computer's speaker. The key stays in this tab only.</p>
-    <p class="muted">Send a test message, as the hub would:</p>
-    <div class="row">
-      <input id="testDevice" type="text" value="lamp" aria-label="Device">
-      <input id="testColor" type="color" value="#ffaa00" aria-label="Colour">
-      <button id="testActive">active</button>
-    </div>
-    <div class="row" style="margin-top: 8px">
-      <input id="testText" type="text" value="Lamp" aria-label="Text to say">
-      <button id="testSay">say</button>
-      <button id="testError">error</button>
-    </div>
-    <p class="muted" style="margin: 10px 0 0">With the microphone on, the band's light stays blue, so <code>active</code> and <code>error</code> show on this page. Muted, they also set the band's light.</p>
-  </section>
-
-  <section class="card">
-    <div class="row spread" style="margin-bottom: 12px">
-      <h2 style="margin: 0">Outgoing messages</h2>
-      <div class="row">
-        <span id="coordinator" class="pill">Coordinator: connecting</span>
-        <span id="hub" class="pill">Device API: not tried yet</span>
+  <div class="stack">
+    <section class="card">
+      <div class="head">
+        <h2>Messages out</h2>
+        <div class="row">
+          <span id="coordinator" class="pill">Coordinator: connecting</span>
+          <span id="hub" class="pill">API: not tried</span>
+        </div>
       </div>
-    </div>
-    <div id="log"></div>
-    <p id="coordinatorText" class="muted" style="margin: 10px 0 0"></p>
-    <p id="hubText" class="muted" style="margin: 10px 0 0"></p>
-  </section>
+      <div id="log"></div>
+      <p id="coordinatorText" class="muted"></p>
+      <p id="hubText" class="muted"></p>
+    </section>
 
-  <section class="card">
+    <section class="card">
+      <div class="head">
+        <h2>Voice</h2>
+        <span id="micState" class="pill">Off</span>
+      </div>
+      <p id="heard"></p>
+      <div class="meter" style="margin: 6px 0 12px">
+        <label><span>Loudness</span><span id="loudText">--</span></label>
+        <div class="track"><i id="loudBar" style="left: 0"></i><u style="left: 55%"></u></div>
+      </div>
+      <p id="sending"></p>
+      <div class="row">
+        <input id="deepgramKey" type="password" placeholder="Deepgram key, Enter" autocomplete="off">
+        <button id="forgetKey">Forget</button>
+        <button id="mute">Mute</button>
+      </div>
+      <p class="muted" style="margin-top: 8px">Say <b>“Vexo”</b> then your command, or hold <kbd>Space</kbd>. While the mic is on, its sound goes to Deepgram.</p>
+      <details class="more">
+        <summary>Mic settings</summary>
+        <div class="row">
+          <label class="muted" for="gain">Gain, dB</label>
+          <input id="gain" type="number" min="-20" max="20" step="1">
+          <span class="muted">Lower picks up only a voice near the wrist.</span>
+        </div>
+        <p class="muted" style="margin-top: 8px">Everyone nearby is heard too: tell them, and mute when not in use. The key stays in this tab only.</p>
+      </details>
+    </section>
+  </div>
+
+  <section class="card wide">
     <details id="tuning">
-      <summary>Fine tuning <span id="tuneCount" class="muted"></span></summary>
-      <p class="muted" style="margin: 10px 0 0">Each slider takes effect at once and is kept in this browser. Try a gesture after each change:
-        the line under the tiles says why a movement was not counted.</p>
+      <summary>Fine tuning <span id="tuneCount"></span></summary>
       <div class="tune" id="tuneRows"></div>
-      <div class="row" style="margin-top: 6px">
-        <button id="tuneReset">Back to defaults</button>
+      <div class="row" style="margin-top: 12px">
+        <button id="tuneReset">Defaults</button>
         <button id="tuneCopy">Copy for CONFIG</button>
-        <span class="muted">to keep the values for everyone, paste them into <code>CONFIG</code> in <code>gestures.js</code></span>
+        <label class="muted row" style="gap: 6px"><input id="tuneHelp" type="checkbox"> Explain each slider</label>
+        <span class="muted push">Changes apply at once and stay in this browser.</span>
       </div>
       <div id="tuneText"></div>
     </details>
   </section>
 
-  <section class="card">
-    <details>
-      <summary>Sensor details</summary>
-      <table id="readouts">
-        <tr><td>Arm from level</td><td id="angle">--</td></tr>
-        <tr><td>Twist axis</td><td id="twistAxis">--</td></tr>
-        <tr><td>Swipe axis</td><td id="swipeAxis">--</td></tr>
-        <tr><td>Tap before double-tap</td><td id="tapCheck">--</td></tr>
-        <tr><td>Last movement</td><td id="movement">--</td></tr>
-        <tr><td>Motion rate</td><td id="motionRate">--</td></tr>
-      </table>
-      <p><button id="saveMotion">Save last 10 s of motion</button> <span class="muted">a file for tuning a gesture that is not recognised</span></p>
-      <p class="muted">Last 10 seconds. Acceleration in g, turning in deg/s.</p>
-      <div id="graphs"></div>
-      <p class="muted" style="margin-top: 12px">Taps the band reported</p>
-      <div id="taps"></div>
+  <section class="card wide">
+    <details id="sensorsDetails">
+      <summary>Sensors</summary>
+      <div class="sensors">
+        <div>
+          <table id="readouts">
+            <tr><td>Arm from level</td><td id="angle">--</td></tr>
+            <tr><td>Twist axis</td><td id="twistAxis">--</td></tr>
+            <tr><td>Swipe axis</td><td id="swipeAxis">--</td></tr>
+            <tr><td>Tap before double-tap</td><td id="tapCheck">--</td></tr>
+            <tr><td>Last movement</td><td id="movement">--</td></tr>
+            <tr><td>Motion rate</td><td id="motionRate">--</td></tr>
+          </table>
+          <p style="margin-top: 12px"><button id="saveMotion">Save last 10 s of motion</button></p>
+          <p class="muted" style="margin-top: 12px">Taps from the band</p>
+          <div id="taps"></div>
+        </div>
+        <div>
+          <p class="muted">Last 10 s. Acceleration in g, turning in deg/s.</p>
+          <div id="graphs"></div>
+        </div>
+      </div>
     </details>
+  </section>
+
+  <section class="card wide">
+    <details>
+      <summary>Test messages in</summary>
+      <div class="row">
+        <input id="testDevice" type="text" value="lamp" aria-label="Device">
+        <input id="testColor" type="color" value="#ffaa00" aria-label="Colour">
+        <button id="testActive">active</button>
+        <input id="testText" type="text" value="Lamp" aria-label="Text to say">
+        <button id="testSay">say</button>
+        <button id="testError">error</button>
+      </div>
+      <div class="row" style="margin-top: 12px">
+        <input id="elevenKey" type="password" placeholder="ElevenLabs key for say, Enter" autocomplete="off" style="max-width: 320px">
+        <button id="forgetEleven">Forget</button>
+        <span id="speechState" class="pill">No key</span>
+      </div>
+      <p class="muted" style="margin-top: 8px"><code>say</code> plays through this computer. With the mic on the band's light stays blue, so <code>active</code> and <code>error</code> show here only.</p>
+    </details>
+  </section>
+  <section class="card wide" id="memoryCard">
+    <div class="row spread" style="margin-bottom: 12px">
+      <h2 style="margin: 0">Memory</h2>
+      <span id="memState" class="pill">idle</span>
+    </div>
+    <div class="row">
+      <input id="memDevice" type="text" placeholder="band id, e.g. vexo-76" autocomplete="off" aria-label="Band device id">
+      <button id="memRefresh" class="primary">Refresh</button>
+      <label class="muted" style="display: flex; align-items: center; gap: 6px"><input id="memAuto" type="checkbox"> auto</label>
+    </div>
+    <p class="muted" style="margin: 10px 0 0">What the brain remembers about you, and a timeline of what it saw (the glasses photo) and heard (your voice command).</p>
+    <div id="memFacts" style="margin-top: 14px"></div>
+    <div id="memTimeline" style="margin-top: 8px"></div>
+    <style>
+      #memoryCard .memhead { margin: 0 0 8px; font-size: 14px; }
+      #memoryCard .memfact { padding: 4px 0; }
+      #memoryCard .memturn { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid rgba(128, 128, 128, .25); }
+      #memoryCard .memthumb { width: 96px; height: 72px; object-fit: cover; border-radius: 8px; background: rgba(128, 128, 128, .15); flex: 0 0 auto; }
+      #memoryCard .memthumb-empty { display: flex; align-items: center; justify-content: center; font-size: 11px; color: #888; }
+      #memoryCard .membody { flex: 1; min-width: 0; }
+      #memoryCard .memtop { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+    </style>
   </section>
 </main>
 
@@ -290,15 +345,21 @@
 
 <script>  // a double-clicked file cannot load the library: say so on the page
   if (location.protocol === 'file:') document.getElementById('status').textContent =
-    'Opened by double-click. From the-force run: make band, then open http://localhost:8001/index.html';
+    'Opened by double-click. Run  python3 serve.py  in this folder, then open http://localhost:8001/index.html';
 </script>
 <script type="module">
   import { Band, SimTransport } from './vexo-open-kit/js/src/index.js';
   import * as remote from './band-module.js';
   import { bandDeviceId, createHubLink, hubPost } from './hub.js';
   import { createCoordinatorLink } from './coordinator-link.js';
+  import { createMemoryPanel } from './memory.js';
 
-  const BAND = 76;                                   // our team's band number: Vexo-HACK-76
+  // Which band: ?band=76 in the address, or the number last typed into the page, or 76.
+  const BAND_KEY = 'vexo-band-number';
+  const validBand = (value) => (/^\d{1,3}$/.test(String(value)) && Number(value) >= 1 ? Number(value) : null);
+  let savedBand = null;
+  try { savedBand = localStorage.getItem(BAND_KEY); } catch { /* no storage: the address or 76 */ }
+  const BAND = validBand(new URLSearchParams(location.search).get('band')) ?? validBand(savedBand) ?? 76;
   const SIM = location.search.includes('sim');       // index.html?sim = pretend band, no hardware
   const NAME = 'Vexo-HACK-' + String(BAND).padStart(2, '0');
   const $ = (id) => document.getElementById(id);
@@ -308,7 +369,23 @@
   let bandOn = false;                                // a band is connected right now
   let latest = null;                                 // the newest motion sample
   let sound = null;                                  // for the short beeps
-  document.title = $('title').textContent = 'Band ' + BAND + ' remote';
+  document.title = 'Band ' + BAND + ' remote';
+  remote.useBand(BAND);                              // each band has its own calibration
+  const memory = createMemoryPanel({ root: $('memoryCard'), deviceId: bandDeviceId(BAND) });
+  if (savedBand !== String(BAND)) memory.setDevice(bandDeviceId(BAND));
+  $('bandNumber').value = BAND;
+  $('bandNumber').onchange = () => {                 // another band: start the page again for it
+    const next = validBand($('bandNumber').value.trim());
+    if (next === null) { say('A band number is 1 to 999: the XX in Vexo-HACK-XX.'); $('bandNumber').value = BAND; return; }
+    if (next === BAND) return;
+    try {
+      localStorage.setItem(BAND_KEY, String(next));
+      localStorage.setItem('memDevice', bandDeviceId(next));
+    } catch { /* not kept: the address carries it */ }
+    const address = new URL(location.href);
+    address.searchParams.set('band', next);
+    location.href = address.href;
+  };
 
   // ---- Sensor details: one small graph per motion value, the last 10 seconds ----
   const RATE = remote.CONFIG.motionRate;             // readings a second
@@ -326,7 +403,7 @@
   });
 
   function drawGraphs() {
-    if (!document.querySelector('details').open) return;   // hidden: nothing to draw
+    if (!$('sensorsDetails').open) return;             // hidden: nothing to draw
     const line = getComputedStyle(document.body).getPropertyValue('--line'), accent = getComputedStyle(document.body).getPropertyValue('--accent');
     for (const g of graphs) {
       const c = g.canvas.getContext('2d'), w = g.canvas.width, h = g.canvas.height;
@@ -356,18 +433,15 @@
     document.body.classList.add('one', TILT ? 'tilt' : 'sweep');
     $('stepIcon').textContent = '↔️';
     $('stepName').textContent = 'Left / Right';
-    $('swipeLabel').textContent = 'Sweep strength (line = how hard a sweep must be)';
+    $('swipeLabel').textContent = 'Sweep strength';
     $('howTo').innerHTML = TURN
-      ? 'Hold your forearm level. <b>Turn your wrist quickly to the right or to the left</b>, like turning a key: each quick turn is one step in its direction. '
-        + 'A slow turn does not count, so to step the same way twice turn quickly, come back slowly, and turn quickly again. '
-        + 'Keep the arm itself still while you turn. Tap or double-tap the band for the other two.'
+      ? 'Forearm level, arm still. <b>Turn your wrist quickly</b> right or left <b>and pause</b>: one step each. A slow turn does not count, so come back slowly to step the same way again.'
       : TILT
-        ? 'Hold your forearm level and still for a moment: that is the centre. Then, <b>keeping the arm itself still, tip your wrist right or left, like turning a key, and come back</b>. '
-          + 'Each tip past the line is one step; coming back sends nothing. Tap or double-tap the band for the other two.'
-        : 'Hold your forearm level and still, then move it <b>right or left</b>: sweep the forearm sideways, pivoting at the elbow, '
-          + 'or turn your wrist (clockwise is right). Each one is a step; coming back is free. Tap or double-tap the band for the other two.';
+        ? 'Forearm level and still: that is the centre. <b>Tip your wrist</b> right or left past the line and come back: one step each.'
+        : 'Forearm level and still. <b>Sweep the forearm</b> or turn the wrist right or left: one step each.';
   }
   let dial = 0.5;                                    // what the adjust messages add up to, 0..1
+  let heldTurn = 0, heldAt = 0;                      // the last wrist turn, kept on the bar for a moment
   let swipePeak = 0;                                 // a fading peak, so a short swipe stays visible
   const logLines = [];                               // newest first: { time, name, json, count, at }
 
@@ -405,16 +479,23 @@
 
     if (!state.connected) pill($('clutch'), 'Not connected');
     else if (!cal) pill($('clutch'), 'Calibrate first', 'warn');
-    else if (state.clutch && !state.calm && !state.moving) pill($('clutch'), 'Hold still a moment' + (state.why ? ': ' + state.why : ''), 'warn');
+    else if (state.clutch && !state.calm && !state.moving) pill($('clutch'), 'Hold still' + (state.why ? ': ' + state.why : ''), 'warn');
     else if (state.clutch) pill($('clutch'), 'Ready', 'good');
-    else pill($('clutch'), 'Arm not level: gestures paused');
+    else pill($('clutch'), 'Arm not level');
 
     // Wrist turn: a bar growing from the middle, 120 degrees to each side.
-    const roll = state.roll === null ? 0 : Math.max(-120, Math.min(120, state.roll));
+    let turned = state.roll === null ? 0 : state.roll;
+    if (TURN) {                                      // a turn is over in a moment: keep showing it, then let it ease away
+      const now = Date.now();
+      if (Math.abs(turned) > 3) { heldTurn = turned; heldAt = now; }
+      else if (now - heldAt > 900) heldTurn = Math.abs(heldTurn) < 1 ? 0 : heldTurn * 0.9;
+      turned = heldTurn;
+    }
+    const roll = Math.max(-120, Math.min(120, turned));
     $('rollBar').style.left = (roll >= 0 ? 50 : 50 + roll / 2.4) + '%';
     $('rollBar').style.width = Math.abs(roll) / 2.4 + '%';
-    $('rollText').textContent = state.roll === null ? '--' : state.roll.toFixed(0) + (TURN ? ' deg this turn' : ' deg from rest')
-      + (TILT && state.limitLeft ? '  (a step at ' + Math.round(state.limitLeft) + ' left, ' + Math.round(state.limitRight) + ' right)' : '');
+    $('rollText').textContent = state.roll === null ? '--' : turned.toFixed(0) + '°'
+      + (TILT && state.limitLeft ? '   step at ' + Math.round(state.limitLeft) + '° left, ' + Math.round(state.limitRight) + '° right' : '');
     if (TILT) {                                      // the two lines a tip has to pass
       const right = state.limitRight || remote.CONFIG.tiltOutDegrees, left = state.limitLeft || remote.CONFIG.tiltOutDegrees;
       $('rollLeft').style.left = (50 - left / 2.4) + '%';          // the lines move with the arm and with where the wrist rests
@@ -430,7 +511,8 @@
 
     $('angle').textContent = state.angle === null ? '--' : state.angle.toFixed(0) + ' deg  (gestures within ' + remote.CONFIG.clutchDegrees + ')';
     const direction = (v) => 'x ' + v[0].toFixed(2) + '  y ' + v[1].toFixed(2) + '  z ' + v[2].toFixed(2);
-    $('twistAxis').textContent = cal ? 'mostly ' + cal.twistAxis + '  (' + direction(cal.twistVec) + ')' : '--';
+    $('twistAxis').textContent = cal ? 'mostly ' + cal.twistAxis + '  (' + direction(cal.twistVec) + ')'
+      + (state.axisOff >= 1 ? '  learned ' + state.axisOff.toFixed(0) + '° from this' : '') : '--';
     $('swipeAxis').textContent = cal && cal.swipeVec ? 'mostly ' + cal.swipeAxis + '  (' + direction(cal.swipeVec) + ')' : TILT ? 'not used' : '--';
     const t = state.tapCheck;
     $('tapCheck').textContent = (t.doubleTaps === 0 ? 'double-tap a few times to check' : t.withTapBefore + ' of ' + t.doubleTaps + ' double-taps')
@@ -439,7 +521,7 @@
     $('movement').textContent = m && m.winner === 'turn' ? m.result + '  (wrist ' + m.twist.toFixed(0) + ' deg, arm ' + m.swipe.toFixed(0) + ' deg)'
       : m && m.winner === 'tilt' ? m.result + '  (' + m.twist.toFixed(0) + ' deg from the centre)' : m ? m.result + '  (swipe ' + m.swipe.toFixed(1) + ' deg, twist ' + m.twist.toFixed(1) + ' deg in the first '
       + remote.CONFIG.classifyMs + ' ms: ' + (m.winner === 'none' ? 'no winner' : m.winner + ' won') + ')' : '--';
-    $('whyNot').textContent = state.missed ? 'Last movement not counted: ' + state.missed : '';
+    $('whyNot').textContent = state.missed ? 'Not counted: ' + state.missed : '';
 
     $('motionRate').textContent = state.motionRate + ' samples a second';
 
@@ -456,10 +538,10 @@
     else heard.textContent = state.heard ? '“' + state.heard + '”' : '';
     // Loudness: the band reports dB below full scale; 60 (quiet) is an empty bar, 10 (loud) a full one.
     $('loudBar').style.width = mic.loudness === null ? '0' : Math.max(0, Math.min(100, (60 - mic.loudness) * 2)) + '%';
-    $('loudText').textContent = mic.loudness === null ? '--' : mic.loudness + ' dB below full';
+    $('loudText').textContent = mic.loudness === null ? '--' : mic.loudness + ' dB';
     if (document.activeElement !== $('gain')) $('gain').value = mic.gainDb;
 
-    pill($('speechState'), state.speaking ? 'Speaking' : state.hasSpeechKey ? 'Key set for this tab' : 'No key: say is off', state.speaking ? 'blue' : state.hasSpeechKey ? 'good' : '');
+    pill($('speechState'), state.speaking ? 'Speaking' : state.hasSpeechKey ? 'Key set' : 'No key', state.speaking ? 'blue' : state.hasSpeechKey ? 'good' : '');
 
     // The hub's active device: on the page, because the band's light is blue while the microphone is on.
     $('activeName').textContent = state.active ? state.active.device || 'Active device' : 'No active device';
@@ -548,6 +630,20 @@
       hint: 'Inward is the harder way, so a little less is asked.' },
     { key: 'turnMinDps', name: 'Turn: how quick', unit: 'deg/s', min: 80, max: 600, step: 10, modes: ['turn'],
       hint: 'A turn must peak this fast to count; slower is free, for coming back. Lower if quick turns are missed; raise if coming back counts as a step.' },
+    { key: 'turnAxisLearn', name: 'Learn the wrist axis', unit: 'x', min: 0, max: 1, step: 0.05, modes: ['turn'],
+      hint: 'A band shifts on the wrist, and then real turns look like arm movement. Each big clean turn pulls the wrist axis this far towards its own. 0 uses the calibration only.' },
+    { key: 'turnAxisAnchorTurns', name: 'Re-anchor the wrist axis', unit: 'turns', min: 0, max: 20, step: 1, modes: ['turn'],
+      hint: 'The learned axis stays within 45 degrees of its anchor, the calibrated axis at first. After this many clear turns in a row far from the anchor, the anchor moves there, so a band that has shifted a lot can still be followed. 0 keeps the anchor at calibration.' },
+    { key: 'biasStillMs', name: 'Re-zero the gyro when still', unit: 'ms', min: 0, max: 3000, step: 250,
+      hint: 'When the band has been still this long, what the gyro reads becomes its resting offset, which drifts as the band warms up. 0 keeps the offset from calibration.' },
+    { key: 'turnPauseMs', name: 'Pause to confirm', unit: 'ms', min: 0, max: 500, step: 25, modes: ['turn'],
+      hint: '0 (the default) sends the step the moment the turn is far enough from rest, so a flick counts. Above 0 the wrist must pause this long first: that filters more shakes and stray movement, misses flicks, and makes every step that much later.' },
+    { key: 'turnRestDegrees', name: 'Step: how far from rest', unit: 'deg', min: 0, max: 60, step: 5, modes: ['turn'],
+      hint: 'A step is a quick turn that ends at least this far from where the wrist rests, so turning back to rest is free. Lower it if real steps go missing; raise it if coming back counts as a step. 0 counts every quick turn.' },
+    { key: 'turnRestMs', name: 'Rest: still for', unit: 'ms', min: 1000, max: 10000, step: 500, modes: ['turn'],
+      hint: 'Where the wrist lies still this long is where it rests from then on. Raise it if holding a turn makes the way back count as a step; lower it to settle into a new resting pose sooner.' },
+    { key: 'turnPauseDps', name: 'What counts as paused', unit: 'deg/s', min: 40, max: 300, step: 10, modes: ['turn'],
+      hint: 'Wrist and arm both turning slower than this. Lower is stricter; raise it if steps come late or go missing after big turns.' },
     { key: 'turnArmShare', name: 'Arm movement allowed', unit: 'x', min: 0.1, max: 1.5, step: 0.05, modes: ['turn'],
       hint: 'How much the arm itself may turn, as a share of what the wrist turned. Lower removes more ghost steps while you move around; raise if real turns are refused as "the arm was moving".' },
     { key: 'tiltOutDegrees', name: 'Tip outward: how far', unit: 'deg', min: 10, max: 70, step: 1, modes: ['tilt'],
@@ -612,7 +708,7 @@
     }
     remote.CONFIG.swipeFromCalibration = !Number.isFinite(tuned.swipeMinDps);
     const count = Object.keys(tuned).length;
-    $('tuneCount').textContent = count ? '(' + count + ' changed)' : '';
+    $('tuneCount').textContent = count ? '· ' + count + ' changed' : '';
     try { localStorage.setItem(TUNING_KEY, JSON.stringify(tuned)); } catch { /* not kept: fine */ }
   }
 
@@ -629,6 +725,7 @@
     return [label, slider, shown, hint];
   }));
   applyTuning();
+  $('tuneHelp').onchange = () => $('tuneRows').classList.toggle('help', $('tuneHelp').checked);
   $('tuneReset').onclick = () => { tuned = {}; applyTuning(); $('tuneText').style.display = 'none'; };
   $('tuneCopy').onclick = async () => {
     const keys = Object.keys(tuned);
@@ -644,10 +741,10 @@
   const hub = createHubLink({ post: hubPost(), deviceId: bandDeviceId(BAND), onChange: showHub });
   function showHub(state) {
     const kind = { ready: 'good', unreachable: 'warn', refused: 'warn' }[state.status] || '';
-    const text = { idle: 'not tried yet', ready: 'connected', unreachable: 'not reachable', refused: 'refused' }[state.status];
-    pill($('hub'), 'Device API: ' + text, kind);
-    $('hubText').textContent = 'As ' + state.deviceId + ': ' + state.accepted + ' accepted, ' + state.dropped + ' not delivered.'
-      + (state.problem ? '  ' + state.problem : '');
+    const text = { idle: 'not tried', ready: 'connected', unreachable: 'not reachable', refused: 'refused' }[state.status];
+    pill($('hub'), 'API: ' + text, kind);
+    $('hubText').textContent = state.deviceId + ' · ' + state.accepted + ' sent' + (state.dropped ? ' · ' + state.dropped + ' not delivered' : '')
+      + (state.problem ? ' · ' + state.problem : '');
   }
   showHub(hub.state);
   remote.onEvent((message) => hub.send(message));
@@ -846,6 +943,7 @@
   // ---- Connecting ----
   function setConnected(on) {
     bandOn = on;
+    $('bandNumber').disabled = on;                   // one band at a time: disconnect to change it
     $('calibrate').disabled = !on;
     $('connect').disabled = on;
     $('disconnect').disabled = !on;

@@ -34,8 +34,9 @@ make api PYTHON=.venv/bin/python
 
 The default API address is `http://127.0.0.1:8000`. For another device, explicitly
 export `BODYOS_API_HOST=0.0.0.0` and `BODYOS_SESSION_TOKEN`, use a private LAN, and
-address the Mac by its reachable hostname or IP. `.env` files are not loaded
-automatically by the API. Never commit tokens, photos, or local credentials.
+address the Mac by its reachable hostname or IP. API startup reads only
+`GEMINI_API_KEY` and `GEMINI_MODEL` from `services/mac-runtime/.env`; other
+settings must be exported. Never commit tokens, photos, or local credentials.
 
 ## Client integration
 
