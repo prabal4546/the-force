@@ -57,9 +57,9 @@ class Agent(Protocol):
 
 # Chinese/English cue words that pick a tool deterministically. Kept here so the
 # simulated brain and the real prompt agree on intent even without a model.
-_REMEMBER_CUES = ("记住", "remember", "note that", "记一下")
-_RECALL_CUES = ("今天", "刚才", "看了", "看到", "did i", "did we", "recall",
-                "what did", "what have", "之前", "刚刚")
+_REMEMBER_CUES = ("remember", "note that", "keep in mind", "don't forget")
+_RECALL_CUES = ("did i", "did we", "recall", "what did", "what have",
+                "earlier", "just now", "a moment ago")
 
 
 def _pick_tool(command_text: str) -> str:

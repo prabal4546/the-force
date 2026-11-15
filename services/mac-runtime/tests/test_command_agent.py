@@ -63,7 +63,7 @@ class CommandAgentTests(unittest.TestCase):
     def test_command_runs_a_turn_referencing_the_latest_photo(self):
         # TestClient runs background tasks before returning, so the turn is done.
         artifact_id = self.upload_photo().json()["artifact_id"]
-        res = self.send_command("我面前是什么？")
+        res = self.send_command("what is in front of me?")
         self.assertEqual(res.status_code, 202, res.text)
         event_id = res.json()["event_id"]
         body = self.turn(event_id)
@@ -77,20 +77,20 @@ class CommandAgentTests(unittest.TestCase):
         self.assertEqual(len(mem["recent_turns"]), 1)
 
     def test_command_without_a_photo_still_answers(self):
-        res = self.send_command("你好")
+        res = self.send_command("hello there")
         data = self.turn(res.json()["event_id"]).json()
         self.assertEqual(data["status"], "completed")
         self.assertIsNone(data["image_artifact_id"])
 
     def test_remember_adds_a_fact(self):
-        self.send_command("记住这是我的工位")
+        self.send_command("remember this is my desk")
         mem = self.client.get("/v1/agent/memory?device_id=band-1").json()
-        self.assertIn("记住这是我的工位", mem["facts"])
+        self.assertIn("remember this is my desk", mem["facts"])
 
     def test_retry_does_not_run_a_second_turn(self):
         headers = {"Idempotency-Key": "cmd-001"}
-        first = self.send_command("我面前是什么？", headers=headers)
-        repeated = self.send_command("我面前是什么？", headers=headers)
+        first = self.send_command("what is in front of me?", headers=headers)
+        repeated = self.send_command("what is in front of me?", headers=headers)
         self.assertEqual(repeated.json(), first.json())
         self.assertEqual(self.agent.calls, 1)
 

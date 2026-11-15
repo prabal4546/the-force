@@ -34,7 +34,7 @@ class AgentDispatcherTests(unittest.TestCase):
     def test_runs_the_agent_and_returns_its_turn(self):
         dispatcher = AgentDispatcher(SimulatedAgent())
         turn = asyncio.run(dispatcher.run_turn(
-            "band-1", "evt-1", "记住这是我的工位", None, None, "",
+            "band-1", "evt-1", "remember this is my desk", None, None, "",
         ))
         self.assertEqual(turn.status, "completed")
         self.assertEqual(turn.tool, "remember")

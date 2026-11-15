@@ -14,11 +14,11 @@ class SimulatedAgentTests(unittest.TestCase):
         )
 
     def test_answer_tool_without_image(self):
-        turn = self.run_turn("什么在我面前？")
+        turn = self.run_turn("what is in front of me?")
         self.assertEqual(turn.status, "completed")
         self.assertEqual(turn.tool, "answer")
         self.assertIsNone(turn.understanding)
-        self.assertIn("什么在我面前", turn.answer)
+        self.assertIn("what is in front of me", turn.answer)
 
     def test_answer_tool_with_image_sets_understanding(self):
         turn = self.run_turn("what is this?", image_bytes=b"\x00\x01\x02", image_mime="image/png")
@@ -34,17 +34,17 @@ class SimulatedAgentTests(unittest.TestCase):
         self.assertIsNone(without.understanding)
         self.assertIsNotNone(with_image.understanding)
 
-    def test_remember_tool_in_chinese(self):
-        turn = self.run_turn("记住这是我的工位")
+    def test_remember_tool_stores_the_phrase(self):
+        turn = self.run_turn("remember this is my desk")
         self.assertEqual(turn.tool, "remember")
-        self.assertIn("这是我的工位", turn.answer)
+        self.assertIn("this is my desk", turn.answer)
 
-    def test_remember_tool_in_english(self):
+    def test_remember_tool_short_form(self):
         turn = self.run_turn("remember my desk is here")
         self.assertEqual(turn.tool, "remember")
 
     def test_recall_tool_summarizes_memory_context(self):
-        turn = self.run_turn("我今天看了什么？", memory="saw a red mug")
+        turn = self.run_turn("what did i see today?", memory="saw a red mug")
         self.assertEqual(turn.tool, "recall")
         self.assertIn("red mug", turn.answer)
 
