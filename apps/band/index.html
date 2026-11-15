@@ -265,6 +265,30 @@
       <div id="taps"></div>
     </details>
   </section>
+
+  <section class="card" id="memoryCard">
+    <div class="row spread" style="margin-bottom: 12px">
+      <h2 style="margin: 0">Memory</h2>
+      <span id="memState" class="pill">idle</span>
+    </div>
+    <div class="row">
+      <input id="memDevice" type="text" placeholder="band id, e.g. vexo-76" autocomplete="off" aria-label="Band device id">
+      <button id="memRefresh" class="primary">Refresh</button>
+      <label class="muted" style="display: flex; align-items: center; gap: 6px"><input id="memAuto" type="checkbox"> auto</label>
+    </div>
+    <p class="muted" style="margin: 10px 0 0">What the brain remembers about you, and a timeline of what it saw (the glasses photo) and heard (your voice command).</p>
+    <div id="memFacts" style="margin-top: 14px"></div>
+    <div id="memTimeline" style="margin-top: 8px"></div>
+    <style>
+      #memoryCard .memhead { margin: 0 0 8px; font-size: 14px; }
+      #memoryCard .memfact { padding: 4px 0; }
+      #memoryCard .memturn { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid rgba(128, 128, 128, .25); }
+      #memoryCard .memthumb { width: 96px; height: 72px; object-fit: cover; border-radius: 8px; background: rgba(128, 128, 128, .15); flex: 0 0 auto; }
+      #memoryCard .memthumb-empty { display: flex; align-items: center; justify-content: center; font-size: 11px; color: #888; }
+      #memoryCard .membody { flex: 1; min-width: 0; }
+      #memoryCard .memtop { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+    </style>
+  </section>
 </main>
 
 <div id="wizard">
@@ -297,6 +321,7 @@
   import * as remote from './band-module.js';
   import { bandDeviceId, createHubLink, hubPost } from './hub.js';
   import { createCoordinatorLink } from './coordinator-link.js';
+  import { createMemoryPanel } from './memory.js';
 
   const BAND = 76;                                   // our team's band number: Vexo-HACK-76
   const SIM = location.search.includes('sim');       // index.html?sim = pretend band, no hardware
@@ -304,6 +329,7 @@
   const $ = (id) => document.getElementById(id);
   const say = (text) => { $('status').textContent = text; };
   const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+  createMemoryPanel({ root: $('memoryCard'), deviceId: bandDeviceId(BAND) });
   let band = null;
   let bandOn = false;                                // a band is connected right now
   let latest = null;                                 // the newest motion sample
