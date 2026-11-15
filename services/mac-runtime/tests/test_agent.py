@@ -1,6 +1,11 @@
 import unittest
+from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from bodyos_mac.agent import GeminiAgent, SimulatedAgent
+from bodyos_mac.api import build_agent
 
 
 class SimulatedAgentTests(unittest.TestCase):
@@ -108,6 +113,43 @@ class GeminiAgentOfflineTests(unittest.TestCase):
         payload = agent._build_payload("look", None, None, "ctx")
         parts = payload["contents"][0]["parts"]
         self.assertFalse(any("inline_data" in part for part in parts))
+
+    def test_request_keeps_the_key_out_of_the_url(self):
+        response = BytesIO(b'{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}')
+        with patch("urllib.request.urlopen", return_value=response) as open_request:
+            result = GeminiAgent(api_key="secret-key")._post("gemini-test", "secret-key", {})
+        request = open_request.call_args.args[0]
+        self.assertEqual(result, "ok")
+        self.assertNotIn("secret-key", request.full_url)
+        self.assertEqual(request.get_header("X-goog-api-key"), "secret-key")
+
+
+class ApiAgentSelectionTests(unittest.TestCase):
+    def test_simulate_flag_forces_the_offline_brain(self):
+        agent = build_agent(simulate=True, env={"GEMINI_API_KEY": "live-key"})
+        self.assertIsInstance(agent, SimulatedAgent)
+
+    def test_missing_gemini_key_fails_before_the_api_starts(self):
+        with TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "GEMINI_API_KEY"):
+                build_agent(simulate=False, env={}, env_file=Path(directory) / ".env")
+
+    def test_present_gemini_key_selects_the_real_brain(self):
+        with TemporaryDirectory() as directory:
+            agent = build_agent(
+                simulate=False, env={"GEMINI_API_KEY": "live-key"},
+                env_file=Path(directory) / ".env",
+            )
+        self.assertIsInstance(agent, GeminiAgent)
+
+    def test_local_env_file_selects_the_real_brain_and_model(self):
+        with TemporaryDirectory() as directory:
+            env_file = Path(directory) / ".env"
+            env_file.write_text("# Local Gemini settings\nGEMINI_API_KEY=local-key\nGEMINI_MODEL=gemini-3.8-flash\n")
+            agent = build_agent(simulate=False, env={}, env_file=env_file)
+        self.assertIsInstance(agent, GeminiAgent)
+        self.assertEqual(agent._resolve_key(), "local-key")
+        self.assertEqual(agent._resolve_model(), "gemini-3.8-flash")
 
 
 if __name__ == "__main__":
