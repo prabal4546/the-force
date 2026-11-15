@@ -24,6 +24,23 @@ Start the Mac runtime with `make mac-sim`. In the app, enter `127.0.0.1` for
 the simulator or the Mac's LAN IP for a physical iPhone, then tap **Connect
 Mac**. The connection retries automatically if the runtime restarts.
 
+## Agent memory
+
+The **Memory** button opens a native, read-only view of the agent's remembered
+facts and completed band commands. Each turn shows the command, the agent's
+answer, and the glasses photo when one was attached. The app reads
+`GET /v1/agent/memory` and `GET /v1/artifacts/{artifact_id}` directly from
+the device API; it does not depend on the Mac WebSocket connection.
+
+Start the API on the Mac with `BODYOS_API_HOST=0.0.0.0` for a physical iPhone,
+using a private LAN. In Memory, enter `http://<Mac-LAN-IP>:8000`, the band ID
+(for example `vexo-76`), and the API session token if configured. The token
+stays in the app's current view and is sent as a Bearer header for both memory
+and photo requests. Pull to refresh or use **Refresh memory**. The simulator
+can use `http://127.0.0.1:8000`. Tap a photo thumbnail to view it full size.
+Photo links can become unavailable after the API restarts because artifact
+indexes are held in memory.
+
 ## Module boundaries
 
 - `ProductCore`: state machine and domain types; no hardware SDK imports.

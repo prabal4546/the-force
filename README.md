@@ -11,6 +11,11 @@ make mac-setup
 make api PYTHON=.venv/bin/python
 ```
 
+`make api` uses Gemini for band commands. It reads `GEMINI_API_KEY` and optional
+`GEMINI_MODEL` from `services/mac-runtime/.env`, with exported values taking
+priority. Startup fails if the key is missing. Use `--simulate` only for an
+explicit offline run.
+
 Open `http://127.0.0.1:8000/docs` for request/response schemas and interactive
 examples. See [`docs/api.md`](docs/api.md) for the three input contracts,
 device status, photo retrieval, LAN setup, and client examples.
@@ -123,6 +128,10 @@ to send real macOS arrow keys through the same coordinator.
 The iOS shell contains manual target and gesture controls. Keep these controls
 working even after real hardware is connected; they are the integration and
 demo fallback.
+
+The iPhone app's **Memory** screen reads completed agent turns, remembered facts,
+and glasses photos from the device API over the private LAN. See
+[`apps/ios/README.md`](apps/ios/README.md) for the API address and token setup.
 
 ## Repository layout
 

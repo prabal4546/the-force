@@ -11,6 +11,13 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     connectionCard
                     statusCard
+                    NavigationLink {
+                        MemoryView(macHost: model.macHost)
+                    } label: {
+                        Label("Memory", systemImage: "brain.head.profile")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.borderedProminent)
 
                     Text("Mock gaze target")
                         .font(.headline)
