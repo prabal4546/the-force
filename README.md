@@ -129,6 +129,10 @@ The iOS shell contains manual target and gesture controls. Keep these controls
 working even after real hardware is connected; they are the integration and
 demo fallback.
 
+The iPhone app's **Memory** screen reads completed agent turns, remembered facts,
+and glasses photos from the device API over the private LAN. See
+[`apps/ios/README.md`](apps/ios/README.md) for the API address and token setup.
+
 ## Repository layout
 
 ```text
