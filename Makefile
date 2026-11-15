@@ -10,7 +10,7 @@ PYTHON ?= python3
 MAC_ROOT := services/mac-runtime
 VENV_PYTHON := .venv/bin/python
 
-.PHONY: check mac-setup mac-sim mac-demo govee-demo band api
+.PHONY: check mac-setup mac-sim mac-demo govee-demo band api mentra-bridge mentra-bridge-check
 
 check:
 	$(PYTHON) scripts/check_repo.py
@@ -36,3 +36,10 @@ band:
 
 api:
 	PYTHONPATH=$(MAC_ROOT)/src $(PYTHON) -m bodyos_mac.api
+
+# Mentra Live -> target.detected over the Bluetooth SDK (tools/mentra-bridge). Needs Swift, so it is not part of `check`.
+mentra-bridge:
+	bash tools/mentra-bridge/run.sh
+
+mentra-bridge-check:
+	cd tools/mentra-bridge && DEVELOPER_DIR=$${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} swift test --scratch-path .build/xcode

@@ -10,7 +10,7 @@ final class DemoViewModel: ObservableObject {
     @Published private(set) var eventLog: [String] = []
     @Published private(set) var lastError: String?
 
-    let mentraStatus = "Miniapp lock"
+    let mentraStatus = "Lock via Mac"
     let gimbalStatus = "Mock"
 
     private let macBridge: any MacBridge

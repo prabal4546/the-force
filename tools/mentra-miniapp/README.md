@@ -1,6 +1,10 @@
 # The Force Mentra Miniapp
 
-This is the current Mentra App integration for glasses photo capture. It does
+> Fallback path. `tools/mentra-bridge` publishes the same `target.detected` from the Mac over the
+> Bluetooth SDK alone in about 3 s; this miniapp goes through the Mentra App and takes about 20 s.
+> Do not run both against the same glasses: only one of the Mac and the phone can hold the link.
+
+This is the Mentra App integration for glasses photo capture. It does
 not use the retired cloud SDK or the old **Camera → Use cloud server** setting.
 The miniapp runs inside the standard Mentra phone app and asks the glasses to
 send a photo through the phone using Mentra's BLE relay.
