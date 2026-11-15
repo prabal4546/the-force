@@ -1,13 +1,12 @@
 # Prove the band streams motion: one line a second for 30 seconds, plus taps.
-#   python band_check.py              the real band, over Bluetooth
-#   python band_check.py --sim        the pretend band, no hardware
-#   python band_check.py --band 76    another band (the XX in Vexo-HACK-XX)
+#   python band_check.py          the real band, over Bluetooth
+#   python band_check.py --sim    the pretend band, no hardware
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "vendor" / "vexo-open-kit" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "vexo-open-kit" / "python"))   # the library: a folder in the kit
 from vexo_open.sync import Band
 
-BAND = int(sys.argv[sys.argv.index("--band") + 1]) if "--band" in sys.argv else 76   # the XX in Vexo-HACK-XX
+BAND = 76                                 # our team's band number: Vexo-HACK-76
 SECONDS = 30
 
 latest = None                             # the newest motion reading

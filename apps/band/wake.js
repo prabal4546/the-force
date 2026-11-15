@@ -2,10 +2,6 @@
 // time, and answers with what to do. No band, no network, no timers of its own.
 //
 //   text(text, final, now)   the sentence so far (final: Deepgram marked it finished)
-//
-// After the wake word, a command is everything said until a real pause (wakeEndMs). Deepgram
-// marks a sentence finished at every short pause, so "move this window to that ... display"
-// arrives as two finished sentences: they are joined, and sent once nothing more follows.
 //   tick(now)                call a few times a second, for the timeouts
 //   pushToTalk(on, now)      the spacebar: everything said while held is one command
 //
@@ -30,24 +26,15 @@ export function cleanCommand(text) {
 }
 
 export function createWakeListener(config = CONFIG) {
-  let armed = null;                // after a wake word: { since, parts, interim, lastTextAt }
+  let armed = null;                // after a wake word: { since, pending, lastTextAt }
   let lastWakeAt = -Infinity;
   let held = null;                 // push to talk: { parts, interim, flushAt }
   const state = { armed: false, pending: '', held: false };
 
   function show() {
     state.armed = armed !== null;
-    state.pending = held ? [...held.parts, held.interim].join(' ').trim() : armed ? pending() : '';
+    state.pending = held ? [...held.parts, held.interim].join(' ').trim() : armed ? armed.pending : '';
     state.held = held !== null && held.flushAt === null;
-  }
-
-  /** What has been said since the wake word: the finished sentences and the one still being spoken. */
-  const pending = () => [...armed.parts, armed.interim].filter(Boolean).join(' ');
-
-  function sendArmed() {
-    const said = pending();
-    armed = null;
-    return said ? [{ type: 'command', text: said }] : [];
   }
 
   function flushHeld() {
@@ -68,26 +55,30 @@ export function createWakeListener(config = CONFIG) {
     if (!armed) {
       if (!hit || now - lastWakeAt < config.wakeIgnoreMs) return out;
       lastWakeAt = now;
-      armed = { since: now, parts: [], interim: '', lastTextAt: now };
+      armed = { since: now, pending: '', lastTextAt: now };
       out.push({ type: 'wake' });
     }
     // The command is what follows the wake word; a sentence without it follows an earlier "Vexo."
     const said = cleanCommand(hit ? sentence.slice(hit.end) : sentence);
-    if (final) { if (said) armed.parts.push(said); armed.interim = ''; } else armed.interim = said;
-    if (said) armed.lastTextAt = now;                    // still talking: the pause starts again
+    armed.pending = said;
+    armed.lastTextAt = now;
+    if (final && said) {
+      armed = null;
+      out.push({ type: 'command', text: said });
+    }
     show();
-    return out;                                          // the command itself is sent by tick(), after the pause
+    return out;
   }
 
   function tick(now) {
     let out = [];
     if (held && held.flushAt !== null && now >= held.flushAt) out = flushHeld();
-    if (armed && !pending()) {
-      if (now - armed.since >= config.wakeTimeoutMs) { armed = null; out.push({ type: 'wake-timeout' }); }
-    } else if (armed) {
-      const quiet = now - armed.lastTextAt;
-      // Finished sentences and then a pause: the command is over. Words never marked finished: wait longer.
-      if (quiet >= (armed.interim ? config.wakeStallMs : config.wakeEndMs) || now - armed.since >= config.wakeMaxMs) out = sendArmed();
+    if (armed && !armed.pending && now - armed.since >= config.wakeTimeoutMs) {
+      armed = null;
+      out.push({ type: 'wake-timeout' });
+    } else if (armed && armed.pending && now - armed.lastTextAt >= config.wakeStallMs) {
+      out.push({ type: 'command', text: armed.pending });
+      armed = null;
     }
     show();
     return out;

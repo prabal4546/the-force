@@ -33,14 +33,8 @@ MAX_POST = 2 * 1024 * 1024
 
 API_URL = os.getenv('BODYOS_API_URL', 'http://127.0.0.1:8000').rstrip('/')
 API_TOKEN = os.getenv('BODYOS_SESSION_TOKEN', '')
-# The only API routes a band needs, plus the read-only agent memory + photo
-# artifacts the Memory panel shows. Nothing else is passed on.
-HUB_ROUTES = re.compile(
-    r'^/hub('
-    r'/healthz|/v1/devices/connect|/v1/devices/[A-Za-z0-9_-]{1,128}|/v1/band/events'
-    r'|/v1/agent/memory|/v1/agent/turns/[A-Za-z0-9_-]{1,128}|/v1/artifacts/[A-Za-z0-9_-]{1,128}'
-    r')(\?[A-Za-z0-9_=&%.-]*)?$'
-)
+# The only API routes a band needs. Nothing else is passed on.
+HUB_ROUTES = re.compile(r'^/hub(/healthz|/v1/devices/connect|/v1/devices/[A-Za-z0-9_-]{1,128}|/v1/band/events)(\?[A-Za-z0-9_=&%.-]*)?$')
 MAX_HUB_POST = 64 * 1024
 
 
@@ -72,17 +66,17 @@ class Handler(SimpleHTTPRequestHandler):
             headers['Idempotency-Key'] = key
         request = urllib.request.Request(API_URL + self.path[len('/hub'):], data=body, headers=headers, method=self.command)
         try:
-            with urllib.request.urlopen(request, timeout=5) as answer:
-                self.reply(answer.status, answer.read(), answer.headers.get('Content-Type', 'application/json'))
+            with urllib.request.urlopen(request, timeout=3) as answer:
+                self.reply(answer.status, answer.read())
         except urllib.error.HTTPError as error:               # the API answered, with an error: pass it on
             self.reply(error.code, error.read())
         except (urllib.error.URLError, OSError):
             self.reply(502, {'detail': f'The device API at {API_URL} did not answer. Is it running?'})
 
-    def reply(self, status, body, content_type='application/json'):
+    def reply(self, status, body):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(status)
-        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
         self.wfile.write(data)
