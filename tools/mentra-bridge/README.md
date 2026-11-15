@@ -43,6 +43,24 @@ A photo with no marker leaves the current lock alone. With several markers in vi
 nearest the middle of the photo wins. The iPhone app shows `Mentra locked: ...` and uses
 that target for the next GRAB or THROW.
 
+## Voice commands and the agent
+
+The bridge also feeds the agent brain in the device API (`make api`). When the band sends
+a spoken `command`, the API asks the bridge for a fresh photo before the brain runs, so
+"what am I looking at?" is answered from this moment and not from an old picture:
+
+    band command --> API --> POST 127.0.0.1:8766/capture --> photo over Bluetooth
+                 --> bridge uploads it to /v1/glasses/photos --> brain reads it --> answer
+
+Nothing to set up when both run on this Mac with default ports: the bridge registers
+`glasses-1` itself and the API looks for the bridge at `http://127.0.0.1:8766`
+(`MENTRA_BRIDGE_URL` or `--glasses-bridge` to change it, empty to turn it off). If the
+bridge or the glasses are away, the brain uses the last photo it has. For another API
+address or a session token: `curl -X POST 'http://127.0.0.1:8766/api?address=host:8000&token=...'`.
+
+Measured with the simulated brain: command to settled turn in 3.7 to 4.2 s, nearly all of
+it the photo. Not yet run against the real Gemini brain. Auto-lock photos are not uploaded.
+
 ## Speed
 
 Measured 2026-11-14, glasses `Mentra_Live_E883`, SDK 3.5.0-dev.1416, request to decoded target:
@@ -83,6 +101,7 @@ Loopback only, `http://127.0.0.1:8766` (the Mac runtime owns 8765):
 | `POST /auto?on=1\|0`, `POST /warm?on=1\|0` | Auto-lock, camera warm-up |
 | `POST /lock?target=mac` | Lock a target by hand (recovery path) |
 | `POST /runtime?address=host[:port]` | Where the Mac runtime is |
+| `POST /api?address=host:port[&token=...]` | Where the device API is |
 
 ## Files
 
@@ -91,6 +110,7 @@ Loopback only, `http://127.0.0.1:8766` (the Mac runtime owns 8765):
 | `Sources/MentraBridgeCore/Markers.swift` | Marker texts, Vision QR decode, which marker wins |
 | `Sources/MentraBridgeCore/Wire.swift` | The `target.detected` message; small HTTP parser |
 | `Sources/MentraBridge/TargetCapture.swift` | Photo request, decode, publish; auto-lock and warm-up loops |
+| `Sources/MentraBridge/ApiUpload.swift` | Sends each photo to the device API for the agent |
 | `Sources/MentraBridge/RuntimeLink.swift` | WebSocket to the Mac runtime, reconnects, resends the lock |
 | `Sources/MentraBridge/ControlServer.swift` | The loopback endpoint |
 | `Sources/MentraBridge/App.swift` | Window, pairing, reconnect by name |

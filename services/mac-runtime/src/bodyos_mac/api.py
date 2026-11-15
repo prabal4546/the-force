@@ -8,7 +8,7 @@ import hashlib
 import os
 from pathlib import Path
 import secrets
-from typing import Any, Literal, Optional
+from typing import Any, Awaitable, Callable, Literal, Optional
 from uuid import uuid4
 import warnings
 
@@ -126,6 +126,8 @@ def create_app(
     max_upload_bytes: int = 10 * 1024 * 1024,
     agent: Optional[Agent] = None,
     memory_db: Optional[Path] = None,
+    fresh_photo: Optional[Callable[[], Awaitable[None]]] = None,
+    fresh_photo_timeout: float = 12.0,
 ) -> FastAPI:
     if max_upload_bytes <= 0:
         raise ValueError("max_upload_bytes must be positive")
@@ -219,11 +221,30 @@ def create_app(
         if len(agent_turns) > 1000:
             agent_turns.popitem(last=False)
 
+    def latest_glasses_image() -> tuple[Optional[str], Optional[bytes], Optional[str]]:
+        artifact = latest_glasses_artifact()
+        if artifact is None:
+            return None, None, None
+        metadata = artifact["metadata"]
+        path = artifact["path"]
+        return metadata.artifact_id, path.read_bytes() if path.is_file() else None, metadata.content_type
+
     async def run_agent_turn(
         device_id: str, event_id: str, command_text: str,
         image_artifact_id: Optional[str], image_bytes: Optional[bytes],
         image_mime: Optional[str],
     ) -> None:
+        if fresh_photo is not None:
+            # Ask the glasses for what the wearer sees right now, so the brain
+            # answers about this moment and not the last photo that happened to
+            # arrive. Any failure (bridge not running, glasses away, too slow)
+            # falls back to the photo already chosen.
+            try:
+                await asyncio.wait_for(fresh_photo(), timeout=fresh_photo_timeout)
+            except Exception:
+                pass
+            else:
+                image_artifact_id, image_bytes, image_mime = await asyncio.to_thread(latest_glasses_image)
         context = await asyncio.to_thread(memory.build_context, device_id)
         turn = await agent_dispatcher.run_turn(
             device_id, event_id, command_text, image_bytes, image_mime, context,
@@ -251,17 +272,7 @@ def create_app(
         # Mark the turn in-flight before the response returns, then run it off
         # the event loop. Only reached for a FRESHLY accepted command, so a
         # retried delivery never runs the brain (and never remembers) twice.
-        artifact = latest_glasses_artifact()
-        image_artifact_id: Optional[str] = None
-        image_bytes: Optional[bytes] = None
-        image_mime: Optional[str] = None
-        if artifact is not None:
-            metadata = artifact["metadata"]
-            image_artifact_id = metadata.artifact_id
-            image_mime = metadata.content_type
-            path = artifact["path"]
-            if path.is_file():
-                image_bytes = path.read_bytes()
+        image_artifact_id, image_bytes, image_mime = latest_glasses_image()
         record_agent_turn(
             (device_id, event_id),
             AgentTurnStatus(
@@ -406,6 +417,28 @@ def create_app(
     return application
 
 
+def bridge_capture(bridge_url: str, timeout: float = 12.0) -> Callable[[], Awaitable[None]]:
+    """A ``fresh_photo`` hook for tools/mentra-bridge.
+
+    ``POST <bridge>/capture`` takes one photo on the glasses over Bluetooth; the
+    bridge uploads it to ``/v1/glasses/photos`` before it answers, so when this
+    returns the newest artifact is what the wearer is looking at.
+    """
+    import urllib.request
+
+    url = bridge_url.rstrip("/") + "/capture"
+
+    def capture() -> None:
+        request = urllib.request.Request(url, data=b"", method="POST")
+        with urllib.request.urlopen(request, timeout=timeout) as answer:
+            answer.read()
+
+    async def fresh_photo() -> None:
+        await asyncio.to_thread(capture)
+
+    return fresh_photo
+
+
 app = create_app()
 
 
@@ -422,9 +455,17 @@ def main() -> None:
         action="store_true",
         help="Use the offline SimulatedAgent brain instead of real Gemini",
     )
+    parser.add_argument(
+        "--glasses-bridge",
+        default=os.getenv("MENTRA_BRIDGE_URL", "http://127.0.0.1:8766"),
+        help="tools/mentra-bridge control endpoint; a spoken command takes a fresh glasses photo through it. Empty disables.",
+    )
     arguments = parser.parse_args()
     agent: Agent = SimulatedAgent() if arguments.simulate else GeminiAgent()
-    application = create_app(agent=agent)
+    application = create_app(
+        agent=agent,
+        fresh_photo=bridge_capture(arguments.glasses_bridge) if arguments.glasses_bridge else None,
+    )
     uvicorn.run(application, host=arguments.host, port=arguments.port)
 
 

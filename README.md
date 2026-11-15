@@ -126,7 +126,8 @@ to send real macOS arrow keys through the same coordinator.
 Mentra Bluetooth SDK (no Mentra App, no phone, no Wi-Fi). Look at a marker from
 `docs/mentra-markers/` and press the glasses button, or tick **Auto-lock**: the photo
 comes over Bluetooth, the QR marker is read on the Mac, and `target.detected` goes to
-the Mac runtime and on to the iPhone in about 3 seconds. See
+the Mac runtime and on to the iPhone in about 3 seconds. With `make api` running, a
+spoken band command also takes a fresh glasses photo through the bridge for the agent. See
 [`tools/mentra-bridge/README.md`](tools/mentra-bridge/README.md).
 
 ## Vexo to Govee lamp

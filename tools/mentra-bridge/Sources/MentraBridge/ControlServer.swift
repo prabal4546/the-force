@@ -13,6 +13,7 @@ import Network
 ///   POST /warm?on=1|0                      keep the camera warm between photos
 ///   POST /lock?target=mac|externalDisplay|gimbal|personRed|personBlue   lock a target by hand
 ///   POST /runtime?address=host[:port]      where the Mac runtime is
+///   POST /api?address=host:port[&token=]   where the device API is (photos for the agent)
 @MainActor
 final class ControlServer {
     static let port: UInt16 = 8766

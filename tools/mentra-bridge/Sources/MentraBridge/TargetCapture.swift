@@ -12,11 +12,13 @@ struct CaptureResult {
     var milliseconds = 0
     var bytes = 0
     var codes = 0
+    /// True when the device API took the photo (for the agent).
+    var uploaded = false
 
     var json: [String: Any] {
         [
             "requestId": requestId, "trigger": trigger, "target": target ?? NSNull(), "error": error ?? NSNull(),
-            "ms": milliseconds, "bytes": bytes, "codes": codes,
+            "ms": milliseconds, "bytes": bytes, "codes": codes, "uploaded": uploaded,
         ]
     }
 
@@ -36,6 +38,7 @@ struct CaptureResult {
 final class TargetCapture {
     private let sdk: MentraBluetoothSDK
     private let link: RuntimeLink
+    private let api: ApiUpload
 
     var size = PhotoSize(rawValue: UserDefaults.standard.string(forKey: "photoSize") ?? "") ?? .medium {
         didSet { UserDefaults.standard.set(size.rawValue, forKey: "photoSize") }
@@ -77,9 +80,10 @@ final class TargetCapture {
     private var warmTask: Task<Void, Never>?
     private var warmFailures = 0
 
-    init(sdk: MentraBluetoothSDK, link: RuntimeLink) {
+    init(sdk: MentraBluetoothSDK, link: RuntimeLink, api: ApiUpload) {
         self.sdk = sdk
         self.link = link
+        self.api = api
     }
 
     var status: [String: Any] {
@@ -95,6 +99,11 @@ final class TargetCapture {
         let started = Date()
         let task = Task { @MainActor in
             var result = await self.captureNow(trigger: trigger)
+            // The agent answers spoken commands from the newest photo the API holds. The auto
+            // loop's photos stay here: one every few seconds would only fill the API's disk.
+            if result.error == nil, trigger != "auto", let photo = self.lastPhoto {
+                result.uploaded = await self.api.upload(photo: photo, requestId: result.requestId)
+            }
             result.milliseconds = Int(Date().timeIntervalSince(started) * 1000)
             return result
         }

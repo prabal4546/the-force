@@ -22,7 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MentraBluetoothSDKDele
 
     private let sdk = MentraBluetoothSDK()
     private let link = RuntimeLink()
-    private lazy var capture = TargetCapture(sdk: sdk, link: link)
+    private let api = ApiUpload()
+    private lazy var capture = TargetCapture(sdk: sdk, link: link, api: api)
     private let server = ControlServer()
 
     private var window: NSWindow!
@@ -64,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MentraBluetoothSDKDele
         link.onChange = { [weak self] in self?.refresh() }
         link.onLog = { [weak self] in self?.say($0) }
         capture.onLog = { [weak self] in self?.say($0) }
+        api.onLog = { [weak self] in self?.say($0) }
         capture.onResult = { [weak self] in self?.show($0) }
         server.onLog = { [weak self] in self?.say($0) }
         server.route = { [weak self] request in await self?.route(request) ?? (503, ["error": "shutting down"]) }
@@ -339,6 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MentraBluetoothSDKDele
         body["battery"] = sdk.glasses.battery?.level ?? NSNull()
         body["software"] = sdk.glasses.device?.appVersion ?? NSNull()
         body["runtime"] = ["url": link.url.absoluteString, "connected": link.connected] as [String: Any]
+        body["api"] = api.status
         return body
     }
 
@@ -385,6 +388,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MentraBluetoothSDKDele
             let sent = link.publish(target: target)
             say("Target \(target) locked by hand\(sent ? "" : " (Mac runtime not connected; will send on reconnect)")")
             return (200, ["target": target, "sent": sent])
+        case ("POST", "/api"):
+            guard let address = request.query["address"], api.setAddress(address, token: request.query["token"]) else {
+                return (400, ["error": "use /api?address=host:port[&token=...]"])
+            }
+            return (200, status())
         case ("POST", "/runtime"):
             guard let address = request.query["address"], link.setAddress(address) else {
                 return (400, ["error": "use /runtime?address=host[:port]"])

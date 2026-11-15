@@ -49,6 +49,12 @@ struct CoreTests {
         #expect(json?["confidence"] as? Int == 1)
     }
 
+    @Test func photoUploadIsTheMultipartTheApiExpects() {
+        let body = String(decoding: Wire.multipartPhoto(Data("JPEG".utf8), requestId: "photo-1", boundary: "b"), as: UTF8.self)
+        #expect(body.contains("--b\r\nContent-Disposition: form-data; name=\"requestId\"\r\n\r\nphoto-1\r\n"))
+        #expect(body.contains("name=\"photo\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nJPEG\r\n--b--\r\n"))
+    }
+
     @Test func runtimeAddressForms() {
         #expect(Wire.runtimeURL("127.0.0.1")?.absoluteString == "ws://127.0.0.1:8765/")
         #expect(Wire.runtimeURL("http://192.168.8.10:9000/x?y")?.absoluteString == "ws://192.168.8.10:9000/")

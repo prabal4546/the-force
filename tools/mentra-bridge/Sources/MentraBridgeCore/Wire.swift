@@ -8,6 +8,16 @@ public enum Wire {
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// The upload the device API expects: a `photo` file and its `requestId`.
+    public static func multipartPhoto(_ photo: Data, requestId: String, boundary: String) -> Data {
+        var body = Data()
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"requestId\"\r\n\r\n\(requestId)\r\n".utf8))
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n".utf8))
+        body.append(photo)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        return body
+    }
+
     /// Accepts "192.168.8.10", "host:8765", "ws://host:8765" or an http(s) address.
     public static func runtimeURL(_ address: String) -> URL? {
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
