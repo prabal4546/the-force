@@ -22,8 +22,9 @@ You need Python 3.9 or newer, and Chrome or Edge for the dashboard.
 
 ## Run the motion check
 
-    python band_check.py          # the real band, over Bluetooth
-    python band_check.py --sim    # a pretend band, no hardware needed
+    python band_check.py            # the real band, over Bluetooth
+    python band_check.py --sim      # a pretend band, no hardware needed
+    python band_check.py --band 28  # choose another band
 
 The first real run asks for Bluetooth permission for your terminal. Allow it and run again.
 
@@ -33,8 +34,8 @@ The page cannot be opened by double-click: it has to be served.
 
     make band
 
-Then open <http://localhost:8001/index.html> in Chrome or Edge, press **Connect** and pick
-`Vexo-HACK-76` in the list. To try it without the band, open
+Then open <http://localhost:8001/index.html> in Chrome or Edge. Enter the band number,
+press **Connect**, and pick the matching `Vexo-HACK-XX`. To try it without the band, open
 <http://localhost:8001/index.html?sim> instead.
 
 When the Mac runtime is running, the dashboard also connects to
@@ -42,6 +43,12 @@ When the Mac runtime is running, the dashboard also connects to
 and a left/right wrist step sends the matching macOS presentation arrow. This
 lets the band drive Keynote, PowerPoint, or Google Slides even when a particular
 window cannot be moved. The original events are still recorded by the HTTP API.
+
+With the device API running, a finalized voice command is sent to the agent.
+The **Memory** card can refresh the selected band's completed turns and remembered
+facts. A glasses photo appears in that timeline only after the glasses upload
+one to the API. The Deepgram key must be entered in the dashboard for band audio
+to become command text; the API uses Gemini when started with `make api`.
 
 `serve.py` is a plain file server that also keeps the band's motion, and what the gesture
 detector made of it, in `traces/trace.jsonl` (motion only, on this computer, not in git), so a
@@ -64,24 +71,36 @@ then **Calibrate** and follow the two steps (arm level, then twist starting cloc
 | Tap | `{ "type": "toggle" }` |
 | Double-tap | `{ "type": "select" }` |
 
-The arm makes one gesture: turn the wrist quickly, like turning a key. Every quick turn is
-one step in its direction. A slow turn does not count: to step the same way twice, turn
-quickly, come back slowly, turn quickly again. `adjust` is no longer sent.
+The arm makes one gesture: turn the wrist quickly, like turning a key. A turn that ends
+away from the wrist's resting position is one step. Coming straight back to rest is free,
+even if it is quick. To step the same way twice, turn, come back, then turn again.
+`adjust` is no longer sent.
 
 How it works (`gestures.js`, `gestures: 'turn'`):
 
 - Only the wrist's turning about the forearm is looked at, from the gyro. A turn starts when
   it passes `turnStartDps` and ends when it stops or turns back.
 - It is a step once it has gone `turnOutDegrees` (45, the easy way) or `turnInDegrees` (40),
-  peaked above `turnMinDps` (250 deg/s), and the arm itself turned at most `turnArmShare`
-  (half) of what the wrist turned. So raising, lowering or swinging the arm sends nothing.
+  peaked above `turnMinDps` (150 deg/s), and the arm itself turned at most `turnArmShare`
+  (0.6) of what the wrist turned. So raising, lowering or swinging the arm sends nothing.
+- The wrist axis comes from calibration and is learned in use (`turnAxisLearn`). A band
+  can shift on the wrist; each clean turn updates the axis and stores it with calibration.
+  `turnAxisAnchorTurns` allows the anchor to follow repeated clear turns, while
+  `turnAxisMaxDrift` and `turnAxisAnchorMax` limit how far it can move. The gyro
+  resting offset is refreshed after `biasStillMs` of stillness.
 - One turn is one step, however far it goes, and a turn of more than half a circle keeps
   its direction.
+- A turn counts when it reaches the distance from rest; `turnPauseMs` can require a
+  pause to filter more movement, at the cost of extra delay and missed flicks.
+- `turnRestDegrees` sets the minimum distance from rest at the end of a step.
+  `turnRestMs` updates the resting position after a longer still period. Thus, a
+  quick return to rest does not send the opposite step.
 - Nothing counts while the forearm is more than 50 degrees from level (`clutchDegrees`).
 - Calibration is two poses: arm level, then twist (it gives the forearm's direction in the band).
 
-The numbers come from a recording of the real band, kept as
-`test/fixtures/real-wrist-turns.json` and replayed in the tests: eight deliberate turns of 70
+The numbers come from recordings of real bands, kept as
+`test/fixtures/real-wrist-turns.json` and `test/fixtures/real-shifted-band.json`
+and replayed in the tests. In the first recording, eight deliberate turns of 70
 to 200 degrees at 360 to 1000 deg/s all count, in their direction, and two arm raises and
 four arm swings in the same recording count as nothing.
 
@@ -126,8 +145,11 @@ The band's microphone turns on at connect (solid blue light) and its sound goes 
 Deepgram the whole time (`speech.js`, copied from the kit, with `keyterm=Vexo`). Gestures
 keep working meanwhile.
 
-- Say **"Vexo"** and then what you want. When Deepgram marks the sentence finished, one
-  `{ "type": "command", "text": "..." }` is sent. Nothing within 3 seconds sends nothing.
+- Say **"Vexo"** and then what you want. Everything said until a pause of 0.9 seconds
+  (`wakeEndMs`) becomes one `{ "type": "command", "text": "..." }`. Deepgram can mark
+  a sentence finished at a shorter pause, so that mark alone does not send the command.
+  Nothing within 3 seconds of the wake word sends nothing. A continuous command is
+  sent after `wakeMaxMs` (15 seconds) at the latest.
   The spellings that count as the wake word are `wakeWords` in `CONFIG` (`wake.js` has the logic).
 - Or hold the **spacebar** and speak: everything said while it is held is one command.
 - **Mute** turns the microphone off.
@@ -148,9 +170,9 @@ Every outgoing message is posted to the team's device API, as its contract asks
 `contract/band-input.schema.json`):
 
 - On connect the band is registered: `POST /v1/devices/connect` with
-  `{ "device_id": "vexo-28", "device_type": "band", "hardware_status": "connected" }`, and
+  `{ "device_id": "vexo-76", "device_type": "band", "hardware_status": "connected" }`, and
   `"disconnected"` when the band drops. The ID is `vexo-` plus the band number.
-- Each message goes to `POST /v1/band/events?device_id=vexo-28`, body unchanged, with a new
+- Each message goes to `POST /v1/band/events?device_id=vexo-76`, body unchanged, with a new
   `Idempotency-Key` per event. A retry of the same event reuses its key.
 - `hub.js` checks each message against the contract first (the API is strict: no extra
   fields, `direction` is the integer -1 or 1, command text not blank and at most 4000
@@ -190,5 +212,7 @@ Tests (Node 18 or newer, no band needed):
 
 ## Using a different band
 
-Change `BAND = 76` near the top of both `band_check.py` and `index.html`. The band module
-takes the connected band from the page and has no number of its own.
+Enter the band's number (the XX in `Vexo-HACK-XX`) beside **Band** while disconnected,
+or open `index.html?band=28`. The page remembers the number and keeps a separate
+calibration for each band. It registers the selected band under its own device ID,
+such as `vexo-28`. For the motion check, run `python band_check.py --band 28`.

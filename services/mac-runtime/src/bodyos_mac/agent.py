@@ -55,7 +55,7 @@ class Agent(Protocol):
     ) -> AgentTurn: ...
 
 
-# Chinese/English cue words that pick a tool deterministically. Kept here so the
+# English cue words that pick a tool deterministically. Kept here so the
 # simulated brain and the real prompt agree on intent even without a model.
 _REMEMBER_CUES = ("remember", "note that", "keep in mind", "don't forget")
 _RECALL_CUES = ("did i", "did we", "recall", "what did", "what have",
@@ -122,7 +122,7 @@ class SimulatedAgent:
 # can be overridden with the GEMINI_MODEL env var without touching code.
 _DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 _GEMINI_ENDPOINT = (
-    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
 
 _PROMPT = (
@@ -236,11 +236,11 @@ class GeminiAgent:
         import urllib.error
         import urllib.request
 
-        url = _GEMINI_ENDPOINT.format(model=model, key=key)
+        url = _GEMINI_ENDPOINT.format(model=model)
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "x-goog-api-key": key},
             method="POST",
         )
         with urllib.request.urlopen(request, timeout=self._timeout) as response:

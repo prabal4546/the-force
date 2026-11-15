@@ -9,7 +9,8 @@ import { createSpeaker } from './tts.js';
 
 export { CONFIG, checkPose };
 
-const STORAGE_KEY = 'vexo-band-calibration';
+const STORAGE_KEY = 'vexo-band-calibration';   // the first band's calibration; each band has its own: see useBand
+let storageKey = STORAGE_KEY;
 const listeners = new Set();       // outgoing messages
 const noteListeners = new Set();   // short sentences for the person (problems, hints)
 const signalListeners = new Set(); // moments the page shows or plays: 'wake', 'wake-timeout', 'error', 'active'
@@ -102,6 +103,16 @@ export async function attach(connectedBand) {
   changeMic();
 }
 
+/**
+ * Which band this page is for. Each band keeps its own calibration: no two sit alike on a
+ * wrist, and each gyro rests at its own offset. (Band 28 also finds the one saved before this.)
+ */
+export function useBand(number) {
+  storageKey = STORAGE_KEY + '-' + number;
+  calibration = loadCalibration();
+  detector = calibration ? createDetector(calibration, CONFIG) : null;
+}
+
 /** The calibration steps are being shown (true) or are over (false). Gestures pause meanwhile. */
 export function setCalibrating(on) {
   calibrating = Boolean(on);
@@ -121,7 +132,7 @@ export function recordPose() {
 export function finishCalibration(level, twist, swipe) {
   calibration = computeCalibration(level, twist, swipe || null, CONFIG);
   detector = createDetector(calibration, CONFIG);
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(calibration)); } catch { /* no storage: keep it in memory */ }
+  try { localStorage.setItem(storageKey, JSON.stringify(calibration)); } catch { /* no storage: keep it in memory */ }
   return calibration;
 }
 
@@ -138,6 +149,7 @@ export function getState() {
     twisting: d ? d.twisting : false,
     limitRight: d ? d.limitRight : null,   // tilt: how far a tip must go right now, each way
     limitLeft: d ? d.limitLeft : null,
+    axisOff: d ? d.axisOff : 0,            // turn: how far the learned wrist axis is from the calibrated one, degrees
     why: d ? d.why || null : null,          // tilt: why nothing can fire right now, or null
     centre: d && d.centre !== undefined ? d.centre : null,
     armRate: d && d.armRate !== undefined ? d.armRate : null,
@@ -199,7 +211,7 @@ export function pushToTalk(on) {
 
 function loadCalibration() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const saved = JSON.parse(localStorage.getItem(storageKey) || (storageKey === STORAGE_KEY + '-28' ? localStorage.getItem(STORAGE_KEY) : null));
     // Saves from before the swipe (version 3) do not fit: calibrate again.
     // The turn and the tilt need no swipe axis; the other modes do.
     const fits = saved && saved.version === 3 && Array.isArray(saved.twistVec) && Array.isArray(saved.gravity)
@@ -212,6 +224,11 @@ function loadCalibration() {
 function onMotion(sample) {
   if (recording) { recording.push(sample); return; }
   if (detector && !calibrating) send(detector.update(sample));
+  if (detector && detector.state.axis !== calibration.wristAxis && detector.state.axis !== calibration.twistVec) {
+    calibration.wristAxis = detector.state.axis;         // the wrist's axis was learned a little further: keep it
+    if (detector.state.anchor !== calibration.twistVec) calibration.wristAnchor = detector.state.anchor;
+    try { localStorage.setItem(storageKey, JSON.stringify(calibration)); } catch { /* no storage: kept until the page closes */ }
+  }
 }
 
 function onTap(kind, event) {

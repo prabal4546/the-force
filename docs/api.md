@@ -15,6 +15,11 @@ make mac-setup
 make api PYTHON=.venv/bin/python
 ```
 
+`make api` uses Gemini for band `command` turns. Put `GEMINI_API_KEY` and
+optionally `GEMINI_MODEL` in `services/mac-runtime/.env`, or export them before
+starting the API. Exported values take priority. Startup fails if the key is
+missing; `--simulate` explicitly selects the offline brain.
+
 The API defaults to `http://127.0.0.1:8000`. Interactive schemas and inputs are at
 `/docs`; the machine-readable contract is `/openapi.json`.
 
@@ -33,9 +38,10 @@ Use Mentra's `authToken` option for its uploader. These are trusted demo clients
 sharing a session credential, not a production user/device authentication system.
 Use a private LAN for HTTP; remote deployment needs HTTPS.
 
-Configuration is read from exported environment variables. A `.env` file is not
-loaded automatically. `BODYOS_API_PORT` changes the default port;
-`BODYOS_UPLOAD_DIR` changes the photo directory, default `.data/photos`.
+Only the Gemini key and model are read from `services/mac-runtime/.env` at API
+startup. Other configuration still requires exported environment variables.
+`BODYOS_API_PORT` changes the default port; `BODYOS_UPLOAD_DIR` changes the
+photo directory, default `.data/photos`.
 
 ## 1. Register a device adapter
 

@@ -8,7 +8,7 @@ import hashlib
 import os
 from pathlib import Path
 import secrets
-from typing import Any, Awaitable, Callable, Literal, Optional
+from typing import Any, Awaitable, Callable, Literal, Mapping, Optional
 from uuid import uuid4
 import warnings
 
@@ -19,7 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .agent import Agent, SimulatedAgent
+from .agent import Agent, GeminiAgent, SimulatedAgent
 from .agent_dispatcher import AgentDispatcher
 from .agent_memory import AgentMemory, AgentMemoryError
 from .band_contract import BandEvent, CommandInput
@@ -117,6 +117,28 @@ def inspect_image(path: Path) -> tuple[str, int, int]:
         return content_type, width, height
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombWarning, Image.DecompressionBombError):
         raise HTTPException(415, "The upload is not a valid JPEG or PNG image") from None
+
+
+def build_agent(
+    *, simulate: bool, env: Optional[Mapping[str, str]] = None,
+    env_file: Optional[Path] = None,
+) -> Agent:
+    if simulate:
+        return SimulatedAgent()
+    environment = os.environ if env is None else env
+    path = env_file if env_file is not None else Path(__file__).resolve().parents[2] / ".env"
+    local_settings: dict[str, str] = {}
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            name, separator, value = line.partition("=")
+            name = name.strip()
+            if separator and name in ("GEMINI_API_KEY", "GEMINI_MODEL"):
+                local_settings[name] = value.strip().strip('"').strip("'")
+    key = environment.get("GEMINI_API_KEY", local_settings.get("GEMINI_API_KEY", "")).strip()
+    if not key:
+        raise ValueError("GEMINI_API_KEY is missing; set it in the environment or services/mac-runtime/.env, or run with --simulate")
+    model = environment.get("GEMINI_MODEL", local_settings.get("GEMINI_MODEL"))
+    return GeminiAgent(api_key=key, model=model)
 
 
 def create_app(
@@ -445,15 +467,13 @@ app = create_app()
 def main() -> None:
     import uvicorn
 
-    from .agent import GeminiAgent
-
     parser = argparse.ArgumentParser(description="BodyOS device registration and input API")
     parser.add_argument("--host", default=os.getenv("BODYOS_API_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("BODYOS_API_PORT", "8000")))
     parser.add_argument(
         "--simulate",
         action="store_true",
-        help="Use the offline SimulatedAgent brain instead of real Gemini",
+        help="Force the offline SimulatedAgent brain even when GEMINI_API_KEY is set",
     )
     parser.add_argument(
         "--glasses-bridge",
@@ -461,7 +481,10 @@ def main() -> None:
         help="tools/mentra-bridge control endpoint; a spoken command takes a fresh glasses photo through it. Empty disables.",
     )
     arguments = parser.parse_args()
-    agent: Agent = SimulatedAgent() if arguments.simulate else GeminiAgent()
+    try:
+        agent = build_agent(simulate=arguments.simulate)
+    except ValueError as error:
+        parser.error(str(error))
     application = create_app(
         agent=agent,
         fresh_photo=bridge_capture(arguments.glasses_bridge) if arguments.glasses_bridge else None,
